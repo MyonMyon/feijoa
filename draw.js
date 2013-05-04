@@ -1,8 +1,8 @@
 var infoVersion = "v1.6.5";
 var infoDate = "May 4, 2013"
 
-var sketcher, canvas, dc, sendForm,
-	bar, sidebar, dbg,
+var sketcher, canvas, context, sendForm,
+	buttonsBarDiv, toolsSpan, debugDiv,
 	paletteElem, cElem; //main elements
 
 var sliders = [];
@@ -14,24 +14,92 @@ var x = -5, y = -5,
 
 var activeDrawing = false;
 
-var historyStorage = 32;
-var history = new Array(historyStorage);
-var historyPosition = 0,
-	historyPositionMax = 0;
+/*==============================================================================
+                                    History
+==============================================================================*/
 
-var lastAutoSave = new Date().getTime(),
-	enableAutoSave = true;
+function History(storage) {
+	this.storage = storage;
+	this.array = new Array(this.storage);
+	this.position = 0;
+	this.positionMax = 0;
+	this.lastAutoSave = new Date().getTime(),
+	this.enableAutoSave = true;
+}
 
-var cWidth = 600,
-	cHeight = 360;
+History.prototype.refresh = function() {
+	if (this.position < this.storage - 1) {
+		this.position ++;
+		this.positionMax = this.position;
+	}
+	else
+		for(i = 0; i < this.storage - 1; i ++)
+			this.array[i] = this.array[i + 1];
+	this.array[this.position] = context.getImageData(0, 0, canvasWidth, canvasHeight);
+	if (this.enableAutoSave) {
+		var dt = new Date().getTime();
+		if (dt - this.lastAutoSave > 60000) {
+			history.backupPic(true);
+			this.lastAutoSave = dt;
+		}
+	}
+	updateDebugScreen();
+	updateButtons();
+};
+
+History.prototype.backward = function() {
+	if (this.position > 0) {
+		this.position --;
+	}
+	context.putImageData(this.array[this.position], 0, 0);
+	updateDebugScreen();
+	updateButtons();
+};
+
+History.prototype.forward = function() {
+	if (this.position < this.storage - 1 && this.position < this.positionMax) {
+		this.position ++;
+	}
+	context.putImageData(this.array[this.position], 0, 0);
+	updateDebugScreen();
+	updateButtons();
+};
+
+History.prototype.backupPic = function(auto) {
+	auto = auto || false
+	if (auto || confirm("Вы уверены, что хотите сохранить данные в Local Storage?")) {
+		var jpgData = canvas.toDataURL("image/jpeg");
+		var pngData = canvas.toDataURL();
+		if(!!window.localStorage)
+			window.localStorage.recovery = (jpgData.length < pngData.length ? jpgData : pngData);
+		else if (!auto)
+			alert("Local Storage не поддерживается.");
+	}
+};
+
+History.prototype.loadPic = function(auto) {
+	auto = auto || false
+	var image = new Image();
+	if(!!window.localStorage)
+		image.src = window.localStorage.recovery;
+	else if (!auto)
+		alert("Local Storage не поддерживается.");
+	context.drawImage(image, 0, 0);
+	history.refresh();
+};
+
+var history = new History(32);
+
+var canvasWidth = 600,
+	canvasHeight = 360;
 
 var tools = [
-	{"Opacity" : 1.00, "Width" :  4, "Shadow" : 0, "TurnLimit" : 360, "Color" : "0, 0, 0"      } //Fore
-,	{"Opacity" : 1.00, "Width" : 20, "Shadow" : 0, "TurnLimit" : 360, "Color" : "255, 255, 255"} //Back
-,	{"Opacity" : 1.00, "Width" : 20, "Shadow" : 0, "TurnLimit" : 360, "Color" : "255, 255, 255"} //Eraser
+	{"opacity" : 1.00, "width" :  4, "shadow" : 0, "turnLimit" : 360, "color" : "0, 0, 0"      } //Fore
+,	{"opacity" : 1.00, "width" : 20, "shadow" : 0, "turnLimit" : 360, "color" : "255, 255, 255"} //Back
+,	{"opacity" : 1.00, "width" : 20, "shadow" : 0, "turnLimit" : 360, "color" : "255, 255, 255"} //Eraser
 ], tool = tools[0];
 
-var toolLimits = {"Opacity": [0.05, 1, 0.05], "Width": [1, 128, 1], "Shadow": [0, 20, 1], "TurnLimit": [0, 180, 1]};
+var toolLimits = {"opacity": [0.05, 1, 0.05], "width": [1, 128, 1], "shadow": [0, 20, 1], "turnLimit": [0, 180, 1]};
 
 var debugMode = false,
 	fps = 0,
@@ -114,23 +182,26 @@ var hki = 0; //Hotkey interval for Opera
 var hkPressed = false;
 
 //KEY MODIFIERS
-var c_ = 0x0100, 
-	s_ = 0x0200,
-	a_ = 0x0400;
-	m_ = 0x0800;
+var CTRL  = 0x0100,
+	SHIFT = 0x0200,
+	ALT   = 0x0400,
+	META  = 0x0800,
+	ENTER = 13,
+	F1 = 112, F2 = 113, F3 = 114, F4 = 115,  F5 = 116,  F6 = 117,
+	F7 = 118, F8 = 119, F9 = 120, F10 = 121, F11 = 122, F12 = 123;
 
 var kbLayout = { 
 	  "history-undo" :				"Z".charCodeAt(0)
 	, "history-redo" :				"X".charCodeAt(0)
-	, "history-store" :				119 //F8
-	, "history-extract" :			120 //F9
+	, "history-store" :				F8
+	, "history-extract" :			F9
 
 	, "canva-fill" :				"F".charCodeAt(0)
-	, "canva-delete" :				"B".charCodeAt(0)
+	, "canva-delete" :				"B".charCodeAt(0)		// FBI lol
 	, "canva-invert" :				"I".charCodeAt(0)
-	, "canva-jpeg" :				c_ + "J".charCodeAt(0)
-	, "canva-png" :					c_ + "P".charCodeAt(0)
-	, "canva-send" :				c_ + 13 //ENTER
+	, "canva-jpeg" :				CTRL + "J".charCodeAt(0)
+	, "canva-png" :					CTRL + "P".charCodeAt(0)
+	, "canva-send" :				CTRL + ENTER
 
 	, "tool-antialiasing" :			"O".charCodeAt(0)
 	, "tool-smooth" :				"K".charCodeAt(0)
@@ -141,14 +212,14 @@ var kbLayout = {
 	, "tool-eraser" :				"E".charCodeAt(0)
 	, "tool-width-" :				"Q".charCodeAt(0)
 	, "tool-width+" :				"W".charCodeAt(0)
-	, "tool-opacity-" :				c_ + "Q".charCodeAt(0)
-	, "tool-opacity+" :				c_ + "W".charCodeAt(0)
-	, "tool-shadow-" :				s_ + "Q".charCodeAt(0)
-	, "tool-shadow+" :				s_ + "W".charCodeAt(0)
-	, "tool-turn-" :				c_ + s_ + "Q".charCodeAt(0)
-	, "tool-turn+" :				c_ + s_ + "W".charCodeAt(0)
+	, "tool-opacity-" :				CTRL + "Q".charCodeAt(0)
+	, "tool-opacity+" :				CTRL + "W".charCodeAt(0)
+	, "tool-shadow-" :				SHIFT + "Q".charCodeAt(0)
+	, "tool-shadow+" :				SHIFT + "W".charCodeAt(0)
+	, "tool-turn-" :				CTRL + SHIFT + "Q".charCodeAt(0)
+	, "tool-turn+" :				CTRL + SHIFT + "W".charCodeAt(0)
 
-	, "app-help" :					112
+	, "app-help" :					F1
 
 	, "debug-mode" :				12 //SEECRET KEY !
 };
@@ -156,22 +227,22 @@ var kbLayout = {
 	kbLayout = (!!window.localStorage && !!window.localStorage.layout) ? JSON.parse(window.localStorage.layout) : kbLayout;
 
 for (i = 1; i <= 10; i ++) {
-	kbLayout["tool-opacity." + i] = (i == 10 ? 0 : i) + 48 + c_; 
+	kbLayout["tool-opacity." + i] = (i == 10 ? 0 : i) + 48 + CTRL; 
 	kbLayout["tool-width." + i] = (i == 10 ? 0 : i) + 48; 
 }
 
 var actLayout = { 
-	  "history-undo" :				{"Operation" :	"historyOperation(1)",	"Title" : "&#x2190;",	"Description" : "Назад"}
-	, "history-redo" :				{"Operation" :	"historyOperation(2)",	"Title" : "&#x2192;",	"Description" : "Вперёд"}
-	, "history-store" :				{"Operation" :	"savePic(-1)",			"Title" : "&#x22C1;",	"Description" : "Сделать back-up",	"Once" : true}
-	, "history-extract" :			{"Operation" :	"savePic(-2)",			"Title" : "&#x22C0;",	"Description" : "Извлечь back-up",	"Once" : true}
+	  "history-undo" :				{"Operation" :	"history.backward()",	"Title" : "&#x2190;",	"Description" : "Назад"}
+	, "history-redo" :				{"Operation" :	"history.forward()",	"Title" : "&#x2192;",	"Description" : "Вперёд"}
+	, "history-store" :				{"Operation" :	"history.backupPic()",	"Title" : "&#x22C1;",	"Description" : "Сделать back-up",	"Once" : true}
+	, "history-extract" :			{"Operation" :	"history.loadPic()",	"Title" : "&#x22C0;",	"Description" : "Извлечь back-up",	"Once" : true}
 
 	, "canva-fill" :				{"Operation" :	"clearScreen(0)",		"Title" : "F",			"Description" : "Закрасить полотно основным цветом",	"Once" : true}
 	, "canva-delete" :				{"Operation" :	"clearScreen(1)",		"Title" : "B",			"Description" : "Закрасить полотно фоновым цветом",		"Once" : true}
 	, "canva-invert" :				{"Operation" :	"invertColors()",		"Title" : "&#x25D0;",	"Description" : "Инверсия полотна",		"Once" : true}
-	, "canva-jpeg" :				{"Operation" :	"savePic(1)",			"Title" : "J",			"Description" : "Сохранить в JPEG",		"Once" : true}
-	, "canva-png" :					{"Operation" :	"savePic(2)",			"Title" : "P",			"Description" : "Сохранить в PNG",		"Once" : true}
-	, "canva-send" :				{"Operation" :	"savePic(0)",			"Title" : "&#x21B5;",	"Description" : "Отправить на сервер",	"Once" : true}
+	, "canva-jpeg" :				{"Operation" :	"savePic(false)",		"Title" : "J",			"Description" : "Сохранить в JPEG",		"Once" : true}
+	, "canva-png" :					{"Operation" :	"savePic(true)",		"Title" : "P",			"Description" : "Сохранить в PNG",		"Once" : true}
+	, "canva-send" :				{"Operation" :	"sendPic()",			"Title" : "&#x21B5;",	"Description" : "Отправить на сервер",	"Once" : true}
 
 	, "tool-antialiasing" :			{"Operation" :	"switchMode(2)",		"Title" : "AA",			"Description" : "Anti-Aliasing",			"Once" : true}
 	, "tool-preview" :				{"Operation" :	"switchMode(1)",		"Title" : "&#x25CF;",	"Description" : "Предпросмотр кисти",		"Once" : true}
@@ -255,25 +326,25 @@ function init()
 	canvas.setAttribute("onscroll", "return false;");
 
 	canvas.addEventListener("wheel", cLWChange, false);
-	canvas.width = cWidth;
-	canvas.height = cHeight;
+	canvas.width = canvasWidth;
+	canvas.height = canvasHeight;
 
-	dc = canvas.getContext("2d");
+	context = canvas.getContext("2d");
 
-	dc.fillStyle = "white";
-	dc.fillRect(0, 0, cWidth, cHeight);
-	history[0] = dc.getImageData(0, 0, cWidth, cHeight);
+	context.fillStyle = "white";
+	context.fillRect(0, 0, canvasWidth, canvasHeight);
+	history.array[0] = context.getImageData(0, 0, canvasWidth, canvasHeight);
 
-	sidebar = document.createElement("span");
-	sidebar.id = "tools";
-	sketcher.appendChild(sidebar);
+	toolsSpan = document.createElement("span");
+	toolsSpan.id = "tools";
+	sketcher.appendChild(toolsSpan);
 
 	var e = document.createElement("input"),
 		a = ["shadow", "opacity", "width"], 
 		i = a.length;
 	while (i--) { 
 		var et;
-		var uLetter = a[i].charAt(0).toUpperCase() + a[i].substr(1);
+		var uLetter = a[i];
 		if ((e.type = "range") == e.type) {
 			et = document.createElement("input");
 			et.id = "tool-" + a[i];
@@ -283,7 +354,7 @@ function init()
 			et.max = toolLimits[uLetter][1];
 			et.step = toolLimits[uLetter][2];
 			et.setAttribute("onchange", "updateSliders(1);");
-			sidebar.appendChild(et);
+			toolsSpan.appendChild(et);
 			sliders[et.id] = et;
 		}
 		et = document.createElement("input");
@@ -291,28 +362,28 @@ function init()
 		et.value = eval("tool." + uLetter);
 		et.type = "text";
 		et.setAttribute("onchange", "updateSliders(2);");
-		sidebar.appendChild(et);
+		toolsSpan.appendChild(et);
 		sliders[et.id] = et;
 
 		et = document.createElement("span");
 		et.innerHTML = " " + actLayout["tool-" + a[i]].Title;
-		sidebar.appendChild(et);
+		toolsSpan.appendChild(et);
 
-		sidebar.appendChild(document.createElement("br"));
+		toolsSpan.appendChild(document.createElement("br"));
 	};
 
 	e = document.createElement("span");
 	e.innerHTML = actLayout["tool-palette"].Title + ": ";
-	sidebar.appendChild(e);
+	toolsSpan.appendChild(e);
 
 	paletteSelect = document.createElement("select");
 	paletteSelect.id = "palette-select";
 	paletteSelect.setAttribute("onchange", "updatePalette();");
-	sidebar.appendChild(paletteSelect);
+	toolsSpan.appendChild(paletteSelect);
 
 	paletteElem = document.createElement("div");
 	paletteElem.id = "palette";
-	sidebar.appendChild(paletteElem);
+	toolsSpan.appendChild(paletteElem);
 
 	for (tPalette in paletteDesc) {
 		paletteSelect.options[paletteSelect.options.length] = new Option(paletteDesc[tPalette], tPalette);
@@ -322,16 +393,16 @@ function init()
 
 	e = document.createElement("span");
 	e.innerHTML = actLayout["tool-color"].Title + ": ";
-	sidebar.appendChild(e);
+	toolsSpan.appendChild(e);
 
 	cElem = document.createElement("input");
 	cElem.type = "color";
 	cElem.id = "color"
 	cElem.setAttribute("onchange", "updateColor()");
-	sidebar.appendChild(cElem);
+	toolsSpan.appendChild(cElem);
 
-	bar = document.createElement("div");	
-	sketcher.appendChild(bar);
+	buttonsBarDiv = document.createElement("div");	
+	sketcher.appendChild(buttonsBarDiv);
 
 	for(i in guiButtons) {
 		var tElem = document.createElement("span");	
@@ -340,20 +411,20 @@ function init()
 			tElem.className = (guiButtons[i] =="tool-antialiasing" && antiAliasing) ? "button-active" : "button";
 			tElem.innerHTML = actLayout[guiButtons[i]].Title;
 			tElem.setAttribute("onclick", actLayout[guiButtons[i]].Operation);
-			bar.appendChild(tElem);	
+			buttonsBarDiv.appendChild(tElem);	
 			setElemDesc(guiButtons[i]);
 		} else {
 			tElem.className = "vertical";	
 			tElem.innerHTML = "&nbsp;";
-			bar.appendChild(tElem);	
+			buttonsBarDiv.appendChild(tElem);	
 		}
 	}
 
 	for (i in tools)
-		updateColor(tools[i].Color, i);
+		updateColor(tools[i].color, i);
 
-	dbg = document.createElement("div");	
-	sketcher.appendChild(dbg);
+	debugDiv = document.createElement("div");	
+	sketcher.appendChild(debugDiv);
 
 	updateDebugScreen();
 	updatePalette();
@@ -466,21 +537,21 @@ function updatePosition(event) {
 }
 
 function drawCursor () {
-	if (x >= 0 && x < cWidth && y >= 0 && y < cHeight) {
-		dc.beginPath();
-		dc.lineWidth = 1;
+	if (x >= 0 && x < canvasWidth && y >= 0 && y < canvasHeight) {
+		context.beginPath();
+		context.lineWidth = 1;
 		if (precisePreview) {
-			dc.fillStyle = "rgba(" + tool.Color + ", " + tool.Opacity + ")";
-			dc.shadowBlur = tool.Shadow;
-			dc.shadowColor = "rgb(" + tool.Color + ")";
+			context.fillStyle = "rgba(" + tool.color + ", " + tool.opacity + ")";
+			context.shadowBlur = tool.shadow;
+			context.shadowColor = "rgb(" + tool.color + ")";
 		}
 		else {
-			dc.strokeStyle = "rgb(" + tool.Color + ")";
-			dc.shadowBlur = 0;
+			context.strokeStyle = "rgb(" + tool.color + ")";
+			context.shadowBlur = 0;
 		}
-		dc.arc(x, y, tool.Width / 2, 0, Math.PI*2, false);
-		dc.closePath();
-		precisePreview ? dc.fill() : dc.stroke();
+		context.arc(x, y, tool.width / 2, 0, Math.PI*2, false);
+		context.closePath();
+		precisePreview ? context.fill() : context.stroke();
 		if (!neverFlushCursor)
 			flushCursor = true;
 	}
@@ -493,7 +564,7 @@ function cDraw(event) {
 	updateDebugScreen();
 
 	if ((flushCursor || neverFlushCursor) && !(lowQMode && activeDrawing)) {
-		dc.putImageData(history[historyPosition], 0, 0);
+		context.putImageData(history.array[history.position], 0, 0);
 	}
 
 	if (activeDrawing) {
@@ -502,10 +573,10 @@ function cDraw(event) {
 		pY = smoothMode ? parseInt(y * 0.08 + pY * 0.92) : y;
 		if(!antiAliasing) { //This probably would require massive optimization. Blame W3C.
 			while(1) {
-				for (i = 0; i < tool.Width; i++) {
-					var rC = Math.sqrt(1 - Math.pow(-1 + (i + 0.5) / tool.Width * 2, 2));
-					dc.moveTo(parseInt(tX - tool.Width * rC / 2) + globalOffs_1, tY + globalOffset - parseInt(tool.Width / 2) + i);
-					dc.lineTo(parseInt(tX + tool.Width * rC / 2) - globalOffset, tY + globalOffset - parseInt(tool.Width / 2) + i);
+				for (i = 0; i < tool.width; i++) {
+					var rC = Math.sqrt(1 - Math.pow(-1 + (i + 0.5) / tool.width * 2, 2));
+					context.moveTo(parseInt(tX - tool.width * rC / 2) + globalOffs_1, tY + globalOffset - parseInt(tool.width / 2) + i);
+					context.lineTo(parseInt(tX + tool.width * rC / 2) - globalOffset, tY + globalOffset - parseInt(tool.width / 2) + i);
 				}
 				tX = parseInt((pX + tX) / 2);
 				tY = parseInt((pY + tY) / 2);
@@ -514,8 +585,8 @@ function cDraw(event) {
 			}
 		}
 		else
-			dc.lineTo(pX + globalOffset, pY + globalOffset);
-		dc.stroke();
+			context.lineTo(pX + globalOffset, pY + globalOffset);
+		context.stroke();
 	} else
 		if (neverFlushCursor && !lowQMode)
 			drawCursor();
@@ -537,19 +608,19 @@ function cDrawStart(event) {
 		event.cancelBubble = true;
 
 		var t = tools[(event.which == 1) ? 0 : 1];
-		dc.putImageData(history[historyPosition], 0, 0);
+		context.putImageData(history.array[history.position], 0, 0);
 		activeDrawing = true;
-		dc.lineWidth = antiAliasing ? t.Width : 1;
-		dc.shadowBlur = t.Shadow;
-		dc.strokeStyle = "rgba(" + t.Color + ", " + t.Opacity + ")";
-		dc.shadowColor = "rgb(" + t.Color + ")";
-		dc.lineJoin = "round";
-		dc.lineCap = "round";
-		dc.beginPath();
+		context.lineWidth = antiAliasing ? t.width : 1;
+		context.shadowBlur = t.shadow;
+		context.strokeStyle = "rgba(" + t.color + ", " + t.opacity + ")";
+		context.shadowColor = "rgb(" + t.color + ")";
+		context.lineJoin = "round";
+		context.lineCap = "round";
+		context.beginPath();
 		if(antiAliasing) {
-			dc.moveTo(x + globalOffset, y + globalOffset);
-			dc.lineTo(x + globalOffs_1, y + globalOffs_1);
-			dc.stroke();
+			context.moveTo(x + globalOffset, y + globalOffset);
+			context.lineTo(x + globalOffs_1, y + globalOffs_1);
+			context.stroke();
 		}
 		else
 			cDraw(event);
@@ -562,10 +633,10 @@ function cDrawStart(event) {
 function cDrawEnd(event) {
 	//Saving in history:
 	if (activeDrawing) {
-		dc.putImageData(history[historyPosition], 0, 0);
-		dc.stroke();
-		dc.closePath();
-		historyOperation(0);
+		context.putImageData(history.array[history.position], 0, 0);
+		context.stroke();
+		context.closePath();
+		history.refresh();
 	}
 	activeDrawing=false;
 	updateDebugScreen();
@@ -573,24 +644,23 @@ function cDrawEnd(event) {
 
 function cDrawRestore(event) {
 	if (activeDrawing)
-		dc.moveTo(x + globalOffset, y + globalOffset);
+		context.moveTo(x + globalOffset, y + globalOffset);
 	updatePosition(event);
 	pX = x;
 	pY = y;
-
 }
 
 function cDrawCancel() {
 	if (activeDrawing) {
-		historyOperation(1);
-		historyOperation(2);
+		history.backward();
+		history.forward();
 	}
 	activeDrawing=false;
 	updateDebugScreen();
 }
 
 function cCopyColor() {
-	var rgba = history[historyPosition].data, i = (x+y*cWidth)*4;
+	var rgba = history.array[history.position].data, i = (x+y*canvasWidth)*4;
 	var hex = (rgba[i] * 65536 + rgba[i+1] * 256 + rgba[i+2]).toString(16);
 	while (hex.length < 6) {
 		hex = "0" + hex;
@@ -604,19 +674,19 @@ function cLWChange(event) {
 	event.returnValue = false;
 	if (delta > 0) {
 		if (event.ctrlKey)
-			tool.Opacity = (parseFloat(tool.Opacity) - 0.05).toFixed(2);
+			tool.opacity = (parseFloat(tool.opacity) - 0.05).toFixed(2);
 		else if (event.shiftKey)
-			tool.Shadow --;
+			tool.shadow --;
 		else
-			tool.Width --;
+			tool.width --;
 	}
 	if (delta < 0) {
 		if (event.ctrlKey)
-			tool.Opacity = (parseFloat(tool.Opacity) + 0.05).toFixed(2);
+			tool.opacity = (parseFloat(tool.opacity) + 0.05).toFixed(2);
 		else if (event.shiftKey)
-			tool.Shadow ++;
+			tool.shadow ++;
 		else
-			tool.Width ++;
+			tool.width ++;
 	}
 
 	updateDebugScreen();
@@ -625,24 +695,24 @@ function cLWChange(event) {
 
 function updateDebugScreen() {
 	if (debugMode) {
-		dbg.innerHTML = "Cursor @" + x + ":" + y + "<br />Diff: " + (x - pX) + ":" + (y - pY) + "<br />FPS: " + fps;
+		debugDiv.innerHTML = "Cursor @" + x + ":" + y + "<br />Diff: " + (x - pX) + ":" + (y - pY) + "<br />FPS: " + fps;
 		ticks ++;
 	}
 }
 
 function clearScreen(toolIndex) {
-	dc.fillStyle = "rgb(" + tools[toolIndex].Color + ")";
-	dc.fillRect(0, 0, cWidth, cHeight);
-	historyOperation(0);
+	context.fillStyle = "rgb(" + tools[toolIndex].color + ")";
+	context.fillRect(0, 0, canvasWidth, canvasHeight);
+	history.refresh();
 }
 
 function invertColors() {
-	var buffer = history[historyPosition];
+	var buffer = history.array[history.position];
 	for (var i = 0; i < buffer.data.length; i += 4)
 		for (var j = 0; j < 3; j++)
 			buffer.data[i + j] = 255 - buffer.data[i + j];
-	dc.putImageData(buffer, 0, 0);
-	historyOperation(0);
+	context.putImageData(buffer, 0, 0);
+	history.refresh();
 }
 
 function updateSliders(initiator) {
@@ -650,47 +720,47 @@ function updateSliders(initiator) {
 
 	if (m > 0) {
 		var s = (m == 2 ? "-text" : "");
-		tool.Shadow	= document.getElementById("tool-shadow" + s).value;
-		tool.Width	= document.getElementById("tool-width" + s).value;
-		tool.Opacity	= document.getElementById("tool-opacity" + s).value;
-		//tool.TurnLimit	= document.getElementById("tool-turnlimit" + s).value;
+		tool.shadow	= document.getElementById("tool-shadow" + s).value;
+		tool.width	= document.getElementById("tool-width" + s).value;
+		tool.opacity	= document.getElementById("tool-opacity" + s).value;
+		//tool.turnLimit	= document.getElementById("tool-turnlimit" + s).value;
 	}
 
-	if (tool.Opacity <= toolLimits.Opacity[0]) tool.Opacity = toolLimits.Opacity[0].toFixed(2); else
-	if (tool.Opacity >= toolLimits.Opacity[1]) tool.Opacity = toolLimits.Opacity[1].toFixed(2);
+	if (tool.opacity <= toolLimits.opacity[0]) tool.opacity = toolLimits.opacity[0].toFixed(2); else
+	if (tool.opacity >= toolLimits.opacity[1]) tool.opacity = toolLimits.opacity[1].toFixed(2);
 
-	if (tool.Width <= toolLimits.Width[0]) tool.Width = toolLimits.Width[0]; else
-	if (tool.Width >= toolLimits.Width[1]) tool.Width = toolLimits.Width[1];
+	if (tool.width <= toolLimits.width[0]) tool.width = toolLimits.width[0]; else
+	if (tool.width >= toolLimits.width[1]) tool.width = toolLimits.width[1];
 
-	if (tool.Shadow <= toolLimits.Shadow[0]) tool.Shadow = toolLimits.Shadow[0]; else
-	if (tool.Shadow >= toolLimits.Shadow[1]) tool.Shadow = toolLimits.Shadow[1];
+	if (tool.shadow <= toolLimits.shadow[0]) tool.shadow = toolLimits.shadow[0]; else
+	if (tool.shadow >= toolLimits.shadow[1]) tool.shadow = toolLimits.shadow[1];
 
-	if (tool.TurnLimit <=   0) tool.TurnLimit = 0; else
-	if (tool.TurnLimit >= 360) tool.TurnLimit = 360;
+	if (tool.turnLimit <=   0) tool.turnLimit = 0; else
+	if (tool.turnLimit >= 360) tool.turnLimit = 360;
 
-	document.getElementById("tool-shadow-text").value = tool.Shadow;
-	document.getElementById("tool-width-text").value = tool.Width;
-	document.getElementById("tool-opacity-text").value = tool.Opacity;
-	//document.getElementById("rangeT").value = tool.TurnLimit;
+	document.getElementById("tool-shadow-text").value = tool.shadow;
+	document.getElementById("tool-width-text").value = tool.width;
+	document.getElementById("tool-opacity-text").value = tool.opacity;
+	//document.getElementById("rangeT").value = tool.turnLimit;
 
 	if (document.getElementById("tool-width")) {
-		document.getElementById("tool-shadow").value = tool.Shadow;
-		document.getElementById("tool-width").value = tool.Width;
-		document.getElementById("tool-opacity").value = tool.Opacity;
-		//document.getElementById("rangeTS").value = tool.TurnLimit;
+		document.getElementById("tool-shadow").value = tool.shadow;
+		document.getElementById("tool-width").value = tool.width;
+		document.getElementById("tool-opacity").value = tool.opacity;
+		//document.getElementById("rangeTS").value = tool.turnLimit;
 	}
 
 	cDrawEnd();
-	var w = Math.max(tool.Width, tools[1].Width) + Math.max(tool.Shadow, tools[1].Shadow) * 2.5 + 7;
-	dc.putImageData(history[historyPosition], 0, 0,
+	var w = Math.max(tool.width, tools[1].width) + Math.max(tool.shadow, tools[1].shadow) * 2.5 + 7;
+	context.putImageData(history.array[history.position], 0, 0,
 		parseInt(x) - w / 2, parseInt(y) - w / 2, w, w);
 	drawCursor();
 }
 
 function swapTools(eraser) {
 	if(eraser) {
-		for (i in tool)
-			tool[i] = tools[2][i];
+		for (key in tool)
+			tool[key] = tools[2][key];
 	}
 	else {
 		var back = tools[0];
@@ -698,7 +768,7 @@ function swapTools(eraser) {
 		tools[1] = back;
 		updateColor(0,1);
 	}
-	updateColor(tool.Color);
+	updateColor(tool.color);
 	updateSliders();
 }
 
@@ -711,7 +781,7 @@ function updateColor(value, toolIndex) {
 	var regRGB = /^([0-9]{1,3}),\s*([0-9]{1,3}),\s*([0-9]{1,3})/;
 	if (regRGB.test(v))
 	{
-		var a = (t.Color = v).split(new RegExp(",\s*"));
+		var a = (t.color = v).split(new RegExp(",\s*"));
 		v = "#";
 		for (i in a) {
 			a[i] = Math.max(Math.min(parseInt(a[i]), 255), 0);
@@ -723,7 +793,7 @@ function updateColor(value, toolIndex) {
 		if (!regLong.test(v))
 			return;
 		if (value != "") {
-			t.Color = parseInt(v.substr(1,2), 16) + ", "
+			t.color = parseInt(v.substr(1,2), 16) + ", "
 				+ parseInt(v.substr(3,2), 16) + ", "
 				+ parseInt(v.substr(5,2), 16);
 		}
@@ -731,7 +801,7 @@ function updateColor(value, toolIndex) {
 	if (t == tool) {
 		c.value = v;
 	}
-	document.getElementById((t == tool) ? "canva-fill" : "canva-delete").style.background = "rgb(" + t.Color + ")";
+	document.getElementById((t == tool) ? "canva-fill" : "canva-delete").style.background = "rgb(" + t.color + ")";
 
 	//inverted color
 	var m = parseInt(v.substr(1), 16);
@@ -755,48 +825,12 @@ function updateColor(value, toolIndex) {
 		window.localStorage.historyPalette = JSON.stringify(palette["history"]);
 }
 
-
-function historyOperation(opid) {
-	//0: Write: Refresh
-	//1: Read: Backward
-	//2: Read: Foreward
-	//3: Push Points //OUTDATED
-	if (opid == 1 && historyPosition > 0) {
-		historyPosition --;
-	}
-	if (opid == 2 && historyPosition < historyStorage - 1 && historyPosition < historyPositionMax) {
-		historyPosition ++;
-	}
-	if (opid == 1 || opid == 2) {
-		dc.putImageData(history[historyPosition], 0, 0);
-	}
-	if (opid == 0) {
-		if (historyPosition < historyStorage - 1) {
-			historyPosition ++;
-			historyPositionMax = historyPosition;
-		}
-		else
-			for(i = 0; i < historyStorage - 1; i ++)
-				history[i] = history[i + 1];
-		history[historyPosition] = dc.getImageData(0, 0, cWidth, cHeight);
-		if (enableAutoSave) {
-			var dt = new Date().getTime();
-			if (dt - lastAutoSave > 60000) {
-				savePic(-1,true);
-				lastAutoSave = dt;
-			}
-		}
-	}
-	updateDebugScreen();
-	updateButtons();
-}
-
 function updateButtons() {
 	setElemDesc("canva-jpeg", actLayout["canva-jpeg"].Description + " (≈" + (canvas.toDataURL("image/jpeg").length / 1300).toFixed(0) + " kb)", "canva.jpeg");
 	setElemDesc("canva-png", actLayout["canva-png"].Description + " (≈" + (canvas.toDataURL().length / 1300).toFixed(0) + " kb)", "canva.png");
 
-	document.getElementById("history-redo").className = (historyPosition == historyPositionMax ? "button-disabled" : "button");
-	document.getElementById("history-undo").className = (historyPosition == 0 ? "button-disabled" : "button");
+	document.getElementById("history-redo").className = (history.position == history.positionMax ? "button-disabled" : "button");
+	document.getElementById("history-undo").className = (history.position == 0 ? "button-disabled" : "button");
 
 }
 
@@ -818,11 +852,11 @@ function cHotkeys(k) {
 function cHotkeysStart(event) {
 	if (!hkPressed) {		
 		var k = Math.min(event.keyCode, 255) //preventing from some bad things, that can happen
-			+ (event.ctrlKey ? c_ : 0)
-			+ (event.shiftKey ? s_ : 0)
-			+ (event.altKey ? a_ : 0)
-			+ (event.metaKey ? m_ : 0)
-		if (x >= 0 && x < cWidth && y >= 0 && y < cHeight) {
+			+ (event.ctrlKey ? CTRL : 0)
+			+ (event.shiftKey ? SHIFT : 0)
+			+ (event.altKey ? ALT : 0)
+			+ (event.metaKey ? META : 0)
+		if (x >= 0 && x < canvasWidth && y >= 0 && y < canvasHeight) {
 			event.preventDefault();
 			event.returnValue = false;
 			if (cHotkeys(k)) {				
@@ -845,17 +879,17 @@ function cHotkeysEnd(event) {
 
 function toolModify(id, param, inc, value) {
 	switch (param) {
-		case 0: tools[id].Opacity = (inc == 0 ? value : (tools[id].Opacity + inc)).toFixed(2); break;
-		case 1: tools[id].Width = (inc == 0 ? value : (tools[id].Width + inc)); break;
-		case 2: tools[id].Shadow = (inc == 0 ? value : (tools[id].Shadow + inc)); break;
-		case 3: tools[id].TurnLimit = (inc == 0 ? value : (tools[id].TurnLimit + inc)); break;
+		case 0: tools[id].opacity = (inc == 0 ? value : (tools[id].opacity + inc)).toFixed(2); break;
+		case 1: tools[id].width = (inc == 0 ? value : (tools[id].width + inc)); break;
+		case 2: tools[id].shadow = (inc == 0 ? value : (tools[id].shadow + inc)); break;
+		case 3: tools[id].turnLimit = (inc == 0 ? value : (tools[id].turnLimit + inc)); break;
 	}
 	updateSliders();
 }
 
 function switchMode(id) {
 	switch (id) {
-		case -1: debugMode =! debugMode; dbg.innerHTML=""; break;
+		case -1: debugMode =! debugMode; debugDiv.innerHTML=""; break;
 		case 0: document.getElementById("tool-lowquality").className = (lowQMode = !lowQMode) ? "button-active" : "button"; break;
 		case 1: document.getElementById("tool-preview").className = (precisePreview = !precisePreview) ? "button-active" : "button"; break;
 		case 2: document.getElementById("tool-antialiasing").className = (antiAliasing = !antiAliasing) ? "button-active" : "button"; break;
@@ -863,44 +897,22 @@ function switchMode(id) {
 	}
 }
 
-function savePic(value, auto) {
-	var a = auto || false;
-	switch (value) {
-		case 0:
-			if (a || confirm("Вы уверены, что хотите загрузить изображение на сервер?")) {
-				var imageToSend = document.createElement("input");
-				var jpgData = canvas.toDataURL("image/jpeg");
-				var pngData = canvas.toDataURL();
-				imageToSend.value = (jpgData.length < pngData.length ? jpgData : pngData);
-				imageToSend.name = "content";
-				imageToSend.type = "hidden";
-				sendForm.appendChild(imageToSend);
-				sendForm.submit();
-			}
-		break;
-		case 1: picTab = window.open(canvas.toDataURL("image/jpeg"), "_blank"); break;
-		case 2: picTab = window.open(canvas.toDataURL(), "_blank"); break;
-		case -1:
-			if (a || confirm("Вы уверены, что хотите загрузить данные в Local Storage?")) {
-				var jpgData = canvas.toDataURL("image/jpeg");
-				var pngData = canvas.toDataURL();
-				if(!!window.localStorage)
-					window.localStorage.recovery = (jpgData.length < pngData.length ? jpgData : pngData);
-				else if (!a)
-					alert("Local Storage не поддерживается.");
-			}
-		break;
-		case -2:
-			var image = new Image();
-			if(!!window.localStorage)
-				image.src = window.localStorage.recovery;
-			else if (!a)
-				alert("Local Storage не поддерживается.");
-			dc.drawImage(image, 0, 0);
-			historyOperation(0);
-		break;
-		default: alert("Недопустимое значение (обновите кэш).");
+function sendPic(auto) {
+	auto = auto || false
+	if (auto || confirm("Вы уверены, что хотите загрузить изображение на сервер?")) {
+		var imageToSend = document.createElement("input");
+		var jpgData = canvas.toDataURL("image/jpeg");
+		var pngData = canvas.toDataURL();
+		imageToSend.value = (jpgData.length < pngData.length ? jpgData : pngData);
+		imageToSend.name = "content";
+		imageToSend.type = "hidden";
+		sendForm.appendChild(imageToSend);
+		sendForm.submit();
 	}
+}
+
+function savePic(isPNG) {
+	window.open(canvas.toDataURL(isPNG ? "" : "image/jpeg"), "_blank");
 }
 
 function fpsCount() {
@@ -908,12 +920,12 @@ function fpsCount() {
 	ticks = 0;
 }
 
-function descKeyCode(k) {
-	return (k & c_ ? "Ctrl + ":"") + 
-		(k & a_ ? "Alt + ":"") + 
-		(k & m_ ? "Meta + ":"") + 
-		(k & s_ ? "Shift + ":"") + 
-		(kbDesc[k % 256] ? kbDesc[k % 256] : String.fromCharCode(k % 256));
+function descKeyCode(keyCode) {
+	return (keyCode & CTRL ? "Ctrl + ":"") + 
+		(keyCode & ALT ? "Alt + ":"") + 
+		(keyCode & META ? "Meta + ":"") + 
+		(keyCode & SHIFT ? "Shift + ":"") + 
+		(kbDesc[keyCode % 256] ? kbDesc[keyCode % 256] : String.fromCharCode(keyCode % 256));
 }
 
 function showHelp() {
