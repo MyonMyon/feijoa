@@ -1,105 +1,36 @@
 var infoVersion = "v1.6.5";
 var infoDate = "May 4, 2013"
 
-var sketcher, canvas, context, sendForm,
+var rootDiv, canvas, context, sendForm,
 	buttonsBarDiv, toolsSpan, debugDiv,
-	paletteElem, cElem; //main elements
+	paletteDiv, colorInput; //main elements
 
 var sliders = [];
 
-var x = -5, y = -5,
-	pX = -5, pY = -5,
-	globalOffset = 0.5, //pixel offset
+var globalOffset = 0.5, //pixel offset
 	globalOffs_1 = globalOffset - 0.01;
 
 var activeDrawing = false;
 
-/*==============================================================================
-                                    History
-==============================================================================*/
-
-function History(storage) {
-	this.storage = storage;
-	this.array = new Array(this.storage);
-	this.position = 0;
-	this.positionMax = 0;
-	this.lastAutoSave = new Date().getTime(),
-	this.enableAutoSave = true;
-}
-
-History.prototype.refresh = function() {
-	if (this.position < this.storage - 1) {
-		this.position ++;
-		this.positionMax = this.position;
-	}
-	else
-		for(i = 0; i < this.storage - 1; i ++)
-			this.array[i] = this.array[i + 1];
-	this.array[this.position] = context.getImageData(0, 0, canvasWidth, canvasHeight);
-	if (this.enableAutoSave) {
-		var dt = new Date().getTime();
-		if (dt - this.lastAutoSave > 60000) {
-			history.backupPic(true);
-			this.lastAutoSave = dt;
-		}
-	}
-	updateDebugScreen();
-	updateButtons();
-};
-
-History.prototype.backward = function() {
-	if (this.position > 0) {
-		this.position --;
-	}
-	context.putImageData(this.array[this.position], 0, 0);
-	updateDebugScreen();
-	updateButtons();
-};
-
-History.prototype.forward = function() {
-	if (this.position < this.storage - 1 && this.position < this.positionMax) {
-		this.position ++;
-	}
-	context.putImageData(this.array[this.position], 0, 0);
-	updateDebugScreen();
-	updateButtons();
-};
-
-History.prototype.backupPic = function(auto) {
-	auto = auto || false
-	if (auto || confirm("Вы уверены, что хотите сохранить данные в Local Storage?")) {
-		var jpgData = canvas.toDataURL("image/jpeg");
-		var pngData = canvas.toDataURL();
-		if(!!window.localStorage)
-			window.localStorage.recovery = (jpgData.length < pngData.length ? jpgData : pngData);
-		else if (!auto)
-			alert("Local Storage не поддерживается.");
-	}
-};
-
-History.prototype.loadPic = function(auto) {
-	auto = auto || false
-	var image = new Image();
-	if(!!window.localStorage)
-		image.src = window.localStorage.recovery;
-	else if (!auto)
-		alert("Local Storage не поддерживается.");
-	context.drawImage(image, 0, 0);
-	history.refresh();
-};
-
 var history = new History(32);
+var mousePosition = new Point(-5, -5);
+var previousMousePosition = new Point(-5, -5);
 
-var canvasWidth = 600,
-	canvasHeight = 360;
+var CANVAS_WIDTH = 600,
+	CANVAS_HEIGHT = 360;
 
-var tools = [
+var toolPresets = [
 	{"opacity" : 1.00, "width" :  4, "shadow" : 0, "turnLimit" : 360, "color" : "0, 0, 0"      } //Fore
 ,	{"opacity" : 1.00, "width" : 20, "shadow" : 0, "turnLimit" : 360, "color" : "255, 255, 255"} //Back
 ,	{"opacity" : 1.00, "width" : 20, "shadow" : 0, "turnLimit" : 360, "color" : "255, 255, 255"} //Eraser
-], tool = tools[0];
+], tool = toolPresets[0];
 
-var toolLimits = {"opacity": [0.05, 1, 0.05], "width": [1, 128, 1], "shadow": [0, 20, 1], "turnLimit": [0, 180, 1]};
+var toolLimits = {
+	"opacity":   {min: 0.05, max: 1,   step: 0.05},
+	"width":     {min: 1,    max: 128, step: 1   },
+	"shadow":    {min: 0,    max: 20,  step: 1   },
+	"turnLimit": {min: 0,    max: 180, step: 1   }
+};
 
 var debugMode = false,
 	fps = 0,
@@ -131,7 +62,6 @@ var palette = new Array(); //"@b" breaks the line, "@r" gives name to a new row
 	generatePalette("feijoa", 85, 0);
 	palette["safe"] = [];
 	generatePalette("safe", 51, 6);
-var sana = ["е", "э", "я", "ѣ"];
 	palette["touhou"] = ["@c", "основной цвет", "вторичный цвет", "волосы", "глаза/аксессуары", "аксессуары"
 	    , "@b", "@r", "Общее", "#fcefe2", "#000000"
 
@@ -165,7 +95,7 @@ var sana = ["е", "э", "я", "ѣ"];
 		, "@b", "@r", "Шикиеки", "#ffffff", "#3a2430", "#26655a", "#432e71", "#a32139", "#ffe059"
 
 		, "@b", "@r", "Нитори", "#257dd3", "#0cb473", "#7ec8f9", "#312f83", "#ffffff", "#f1f62e", "#ad2032"
-		, "@b", "@r", "Сана" + sana[Math.floor(Math.random() * sana.length)], "#16168a", "#ffffff", "#13f356", "#9476f5", "#31cacc", "#e7962d"
+		, "@b", "@r", "Сана" + "еэяѣ"[Math.floor(Math.random() * 4)], "#16168a", "#ffffff", "#13f356", "#9476f5", "#31cacc", "#e7962d"
 		, "@b", "@r", "Канако", "#fa5041", "#43334d", "#7360dd", "#ffffff", "#cda277"
 		, "@b", "@r", "Сувако", "#623fbd", "#ffffff", "#f6f3ac", "#bcb67a", "#ea0001", "#fbe4a1", "#000000"
 
@@ -179,16 +109,14 @@ var sana = ["е", "э", "я", "ѣ"];
 var currentPalette = (!!window.localStorage && !!window.localStorage.lastPalette) ? window.localStorage.lastPalette : "classic";
 
 var hki = 0; //Hotkey interval for Opera
-var hkPressed = false;
+var hotkeyPressed = false;
 
 //KEY MODIFIERS
-var CTRL  = 0x0100,
-	SHIFT = 0x0200,
-	ALT   = 0x0400,
-	META  = 0x0800,
-	ENTER = 13,
-	F1 = 112, F2 = 113, F3 = 114, F4 = 115,  F5 = 116,  F6 = 117,
-	F7 = 118, F8 = 119, F9 = 120, F10 = 121, F11 = 122, F12 = 123;
+
+var CTRL = 0x0100, SHIFT = 0x0200, ALT = 0x0400, META  = 0x0800, ENTER = 13,
+    BACKSPACE = 8, TAB = 9, SECRET = 12, ENTER = 13, INSERT = 45, DELETE = 46,
+    F1 = 112, F2 = 113, F3 = 114, F4  = 115, F5  = 116, F6 = 117,
+    F7 = 118, F8 = 119, F9 = 120, F10 = 121, F11 = 122, F12 = 123;
 
 var kbLayout = { 
 	  "history-undo" :				"Z".charCodeAt(0)
@@ -221,54 +149,54 @@ var kbLayout = {
 
 	, "app-help" :					F1
 
-	, "debug-mode" :				12 //SEECRET KEY !
+	, "debug-mode" :				SECRET //SEECRET KEY !
 };
 
 	kbLayout = (!!window.localStorage && !!window.localStorage.layout) ? JSON.parse(window.localStorage.layout) : kbLayout;
 
-for (i = 1; i <= 10; i ++) {
+for (i = 1; i <= 10; i++) {
 	kbLayout["tool-opacity." + i] = (i == 10 ? 0 : i) + 48 + CTRL; 
 	kbLayout["tool-width." + i] = (i == 10 ? 0 : i) + 48; 
 }
 
 var actLayout = { 
-	  "history-undo" :				{"Operation" :	"history.backward()",	"Title" : "&#x2190;",	"Description" : "Назад"}
-	, "history-redo" :				{"Operation" :	"history.forward()",	"Title" : "&#x2192;",	"Description" : "Вперёд"}
-	, "history-store" :				{"Operation" :	"history.backupPic()",	"Title" : "&#x22C1;",	"Description" : "Сделать back-up",	"Once" : true}
-	, "history-extract" :			{"Operation" :	"history.loadPic()",	"Title" : "&#x22C0;",	"Description" : "Извлечь back-up",	"Once" : true}
+	  "history-undo" :				{"operation" :	"history.undo()",	"title" : "&#x2190;",	"description" : "Назад"}
+	, "history-redo" :				{"operation" :	"history.redo()",	"title" : "&#x2192;",	"description" : "Вперёд"}
+	, "history-store" :				{"operation" :	"history.storePic()",	"title" : "&#x22C1;",	"description" : "Сделать back-up",	"once" : true}
+	, "history-extract" :			{"operation" :	"history.extractPic()",	"title" : "&#x22C0;",	"description" : "Извлечь back-up",	"once" : true}
 
-	, "canva-fill" :				{"Operation" :	"clearScreen(0)",		"Title" : "F",			"Description" : "Закрасить полотно основным цветом",	"Once" : true}
-	, "canva-delete" :				{"Operation" :	"clearScreen(1)",		"Title" : "B",			"Description" : "Закрасить полотно фоновым цветом",		"Once" : true}
-	, "canva-invert" :				{"Operation" :	"invertColors()",		"Title" : "&#x25D0;",	"Description" : "Инверсия полотна",		"Once" : true}
-	, "canva-jpeg" :				{"Operation" :	"savePic(false)",		"Title" : "J",			"Description" : "Сохранить в JPEG",		"Once" : true}
-	, "canva-png" :					{"Operation" :	"savePic(true)",		"Title" : "P",			"Description" : "Сохранить в PNG",		"Once" : true}
-	, "canva-send" :				{"Operation" :	"sendPic()",			"Title" : "&#x21B5;",	"Description" : "Отправить на сервер",	"Once" : true}
+	, "canva-fill" :				{"operation" :	"clearScreen(0)",		"title" : "F",			"description" : "Закрасить полотно основным цветом",	"once" : true}
+	, "canva-delete" :				{"operation" :	"clearScreen(1)",		"title" : "B",			"description" : "Закрасить полотно фоновым цветом",		"once" : true}
+	, "canva-invert" :				{"operation" :	"invertColors()",		"title" : "&#x25D0;",	"description" : "Инверсия полотна",		"once" : true}
+	, "canva-jpeg" :				{"operation" :	"savePic(false)",		"title" : "J",			"description" : "Сохранить в JPEG",		"once" : true}
+	, "canva-png" :					{"operation" :	"savePic(true)",		"title" : "P",			"description" : "Сохранить в PNG",		"once" : true}
+	, "canva-send" :				{"operation" :	"sendPic()",			"title" : "&#x21B5;",	"description" : "Отправить на сервер",	"once" : true}
 
-	, "tool-antialiasing" :			{"Operation" :	"switchMode(2)",		"Title" : "AA",			"Description" : "Anti-Aliasing",			"Once" : true}
-	, "tool-preview" :				{"Operation" :	"switchMode(1)",		"Title" : "&#x25CF;",	"Description" : "Предпросмотр кисти",		"Once" : true}
-	, "tool-lowquality" :			{"Operation" :	"switchMode(0)",		"Title" : "&#x25A0;",	"Description" : "Режим низкого качества",	"Once" : true}
-	, "tool-smooth" :				{"Operation" :	"switchMode(3)",		"Title" : "Ω",			"Description" : "Режим сглаживания линии",	"Once" : true}
-	, "tool-colorpick" :			{"Operation" :	"cCopyColor()"}
-	, "tool-swap" :					{"Operation" :	"swapTools(0)",			"Title" : "&#x2194;",	"Description" : "Поменять инструменты местами",					"Once" : true}
-	, "tool-eraser" :				{"Operation" :	"swapTools(1)",			"Title" : "&#x25A1;",	"Description" : "Заменить инструмент на стандартный ластик",	"Once" : true}
-	, "tool-width-" :				{"Operation" :	"toolModify(0, 1, -1)"}
-	, "tool-width+" :				{"Operation" :	"toolModify(0, 1, +1)"}
-	, "tool-opacity-" :				{"Operation" :	"toolModify(0, 0, -0.05)"}
-	, "tool-opacity+" :				{"Operation" :	"toolModify(0, 0, +0.05)"}
-	, "tool-shadow-" :				{"Operation" :	"toolModify(0, 2, -1)"}
-	, "tool-shadow+" :				{"Operation" :	"toolModify(0, 2, +1)"}
-	, "tool-turn-" :				{"Operation" :	"toolModify(0, 3, -1)"}
-	, "tool-turn+" :				{"Operation" :	"toolModify(0, 3, +1)"}
+	, "tool-antialiasing" :			{"operation" :	"switchMode(2)",		"title" : "AA",			"description" : "Anti-Aliasing",			"once" : true}
+	, "tool-preview" :				{"operation" :	"switchMode(1)",		"title" : "&#x25CF;",	"description" : "Предпросмотр кисти",		"once" : true}
+	, "tool-lowquality" :			{"operation" :	"switchMode(0)",		"title" : "&#x25A0;",	"description" : "Режим низкого качества",	"once" : true}
+	, "tool-smooth" :				{"operation" :	"switchMode(3)",		"title" : "Ω",			"description" : "Режим сглаживания линии",	"once" : true}
+	, "tool-colorpick" :			{"operation" :	"cCopyColor()"}
+	, "tool-swap" :					{"operation" :	"swapTools(false)",			"title" : "&#x2194;",	"description" : "Поменять инструменты местами",					"once" : true}
+	, "tool-eraser" :				{"operation" :	"swapTools(true)",			"title" : "&#x25A1;",	"description" : "Заменить инструмент на стандартный ластик",	"once" : true}
+	, "tool-width-" :				{"operation" :	"toolModify(0, 'width', -1)"}
+	, "tool-width+" :				{"operation" :	"toolModify(0, 'width', +1)"}
+	, "tool-opacity-" :				{"operation" :	"toolModify(0, 'opacity', -0.05)"}
+	, "tool-opacity+" :				{"operation" :	"toolModify(0, 'opacity', +0.05)"}
+	, "tool-shadow-" :				{"operation" :	"toolModify(0, 'shadow', -1)"}
+	, "tool-shadow+" :				{"operation" :	"toolModify(0, 'shadow', +1)"}
+	, "tool-turn-" :				{"operation" :	"toolModify(0, 'turnLimit', -1)"}
+	, "tool-turn+" :				{"operation" :	"toolModify(0, 'turnLimit', +1)"}
 
-	, "tool-width" : 				{"Title" : "Толщина"}
-	, "tool-opacity" : 				{"Title" : "Непрозрачность"}
-	, "tool-shadow" : 				{"Title" : "Тень"}
-	, "tool-color" : 				{"Title" : "Код цвета"}
-	, "tool-palette" : 				{"Title" : "Палитра"}
+	, "tool-width" : 				{"title" : "Толщина"}
+	, "tool-opacity" : 				{"title" : "Непрозрачность"}
+	, "tool-shadow" : 				{"title" : "Тень"}
+	, "tool-color" : 				{"title" : "Код цвета"}
+	, "tool-palette" : 				{"title" : "Палитра"}
 
-	, "app-help" :					{"Operation" :	"showHelp()",			"Title" : "?",			"Description" : "Помощь",	"Once" : true}
+	, "app-help" :					{"operation" :	"showHelp()",			"title" : "?",			"description" : "Помощь",	"once" : true}
 
-	, "debug-mode" :				{"Operation" :	"switchMode(-1)"}
+	, "debug-mode" :				{"operation" :	"switchMode(-1)"}
 };
 
 //List of buttons to display
@@ -276,9 +204,9 @@ var guiButtons = ["history-undo", "history-redo", "|", "canva-fill", "tool-swap"
 					"tool-antialiasing", "tool-preview", "tool-smooth", "tool-lowquality", "|",
 					"history-store", "history-extract", "canva-jpeg", "canva-png", "canva-send", "|", "app-help"];
 
-for (i = 1; i <= 10; i ++) {
-	actLayout["tool-opacity." + i] = {"Operation" : "toolModify(0, 0, 0, " + (i / 10) + ")"}; 
-	actLayout["tool-width." + i] = {"Operation" : "toolModify(0, 1, 0, " + Math.ceil(Math.pow(1.7, i-1)) + ")"}; 
+for (i = 1; i <= 10; i++) {
+	actLayout["tool-opacity." + i] = {"operation" : "toolModify(0, 'opacity', 0, " + (i / 10) + ")"}; 
+	actLayout["tool-width." + i] = {"operation" : "toolModify(0, 'width', 0, " + Math.ceil(Math.pow(1.7, i-1)) + ")"}; 
 }
 
 var kbDesc = {
@@ -295,7 +223,7 @@ var kbDesc = {
 	, 222 : "'"
 }
 
-for (i = 1; i <= 15; i ++) {
+for (i = 1; i <= 15; i++) {
 	kbDesc[111 + i] = "F" + i;
 }
 
@@ -303,22 +231,21 @@ document.addEventListener("DOMContentLoaded", init, false);
 
 function init()
 {
-	sketcher = document.getElementById("sketcher");
+	rootDiv = document.getElementById("sketcher");
 
 	sendForm = document.createElement("form");
 	sendForm.method = "post";
 	sendForm.action = "";
-	sketcher.appendChild(sendForm);
+	rootDiv.appendChild(sendForm);
 
 	canvas = document.createElement("canvas");	
-	sketcher.appendChild(canvas);
+	canvas.width = CANVAS_WIDTH;
+	canvas.height = CANVAS_HEIGHT;
+	rootDiv.appendChild(canvas);
 
 	canvas.addEventListener("mousedown", cDrawStart, false);
-	canvas.addEventListener("mousemove", cDraw, false);
+	document.addEventListener("mousemove", cDraw, false);
 	document.addEventListener("mouseup", cDrawEnd, false);
-	canvas.addEventListener("mouseout", cDraw, false);
-	canvas.addEventListener("mouseover", cDrawRestore, false);
-	document.addEventListener("mousemove", updatePosition, false);
 	document.addEventListener("keydown", cHotkeysStart, false);
 	document.addEventListener("keyup", cHotkeysEnd, false);
 
@@ -326,64 +253,61 @@ function init()
 	canvas.setAttribute("onscroll", "return false;");
 
 	canvas.addEventListener("wheel", cLWChange, false);
-	canvas.width = canvasWidth;
-	canvas.height = canvasHeight;
 
 	context = canvas.getContext("2d");
 
 	context.fillStyle = "white";
-	context.fillRect(0, 0, canvasWidth, canvasHeight);
-	history.array[0] = context.getImageData(0, 0, canvasWidth, canvasHeight);
+	context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+	history.array[0] = context.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
 	toolsSpan = document.createElement("span");
 	toolsSpan.id = "tools";
-	sketcher.appendChild(toolsSpan);
+	rootDiv.appendChild(toolsSpan);
 
-	var e = document.createElement("input"),
-		a = ["shadow", "opacity", "width"], 
-		i = a.length;
-	while (i--) { 
-		var et;
-		var uLetter = a[i];
-		if ((e.type = "range") == e.type) {
-			et = document.createElement("input");
-			et.id = "tool-" + a[i];
-			et.type = "range";
-			et.value = eval("tool." + uLetter);
-			et.min = toolLimits[uLetter][0];
-			et.max = toolLimits[uLetter][1];
-			et.step = toolLimits[uLetter][2];
-			et.setAttribute("onchange", "updateSliders(1);");
-			toolsSpan.appendChild(et);
-			sliders[et.id] = et;
+	function input(propertyName, isSlider) {
+		var input = document.createElement("input");
+		input.id = "tool-" + propertyName + (isSlider ? "" : "-text");
+		input.type = isSlider ? "range" : "text";
+		input.value = tool[propertyName];
+		if (isSlider) {
+			input.min = toolLimits[propertyName].min;
+			input.max = toolLimits[propertyName].max;
+			input.step = toolLimits[propertyName].step;
 		}
-		et = document.createElement("input");
-		et.id = "tool-" + a[i] + "-text";
-		et.value = eval("tool." + uLetter);
-		et.type = "text";
-		et.setAttribute("onchange", "updateSliders(2);");
-		toolsSpan.appendChild(et);
-		sliders[et.id] = et;
+		input.setAttribute("onchange", isSlider ? "updateSliders(1);" : "updateSliders(2);");
+		toolsSpan.appendChild(input);
+		sliders[input.id] = input;
+	}
 
-		et = document.createElement("span");
-		et.innerHTML = " " + actLayout["tool-" + a[i]].Title;
-		toolsSpan.appendChild(et);
+	var element = document.createElement("input"),
+		properties = ["shadow", "opacity", "width"], 
+		i = properties.length,
+		supportsSliders = (element.type = "range") == element.type;
 
+	while (i--) { 
+		if (supportsSliders) {
+			input(properties[i], true);
+		}
+		input(properties[i], false);
+
+		element = document.createElement("span");
+		element.innerHTML = " " + actLayout["tool-" + properties[i]].title;
+		toolsSpan.appendChild(element);
 		toolsSpan.appendChild(document.createElement("br"));
 	};
 
-	e = document.createElement("span");
-	e.innerHTML = actLayout["tool-palette"].Title + ": ";
-	toolsSpan.appendChild(e);
+	element = document.createElement("span");
+	element.innerHTML = actLayout["tool-palette"].title + ": ";
+	toolsSpan.appendChild(element);
 
 	paletteSelect = document.createElement("select");
 	paletteSelect.id = "palette-select";
 	paletteSelect.setAttribute("onchange", "updatePalette();");
 	toolsSpan.appendChild(paletteSelect);
 
-	paletteElem = document.createElement("div");
-	paletteElem.id = "palette";
-	toolsSpan.appendChild(paletteElem);
+	paletteDiv = document.createElement("div");
+	paletteDiv.id = "palette";
+	toolsSpan.appendChild(paletteDiv);
 
 	for (tPalette in paletteDesc) {
 		paletteSelect.options[paletteSelect.options.length] = new Option(paletteDesc[tPalette], tPalette);
@@ -391,40 +315,41 @@ function init()
 			paletteSelect.options[paletteSelect.options.length - 1].selected = true;
 	}
 
-	e = document.createElement("span");
-	e.innerHTML = actLayout["tool-color"].Title + ": ";
-	toolsSpan.appendChild(e);
+	element = document.createElement("span");
+	element.innerHTML = actLayout["tool-color"].title + ": ";
+	toolsSpan.appendChild(element);
 
-	cElem = document.createElement("input");
-	cElem.type = "color";
-	cElem.id = "color"
-	cElem.setAttribute("onchange", "updateColor()");
-	toolsSpan.appendChild(cElem);
+	colorInput = document.createElement("input");
+	colorInput.type = "color";
+	colorInput.id = "color"
+	colorInput.setAttribute("onchange", "updateColor()");
+	toolsSpan.appendChild(colorInput);
 
 	buttonsBarDiv = document.createElement("div");	
-	sketcher.appendChild(buttonsBarDiv);
+	rootDiv.appendChild(buttonsBarDiv);
 
-	for(i in guiButtons) {
-		var tElem = document.createElement("span");	
+	for (var i = 0; i < guiButtons.length; i++) {
+		var button = document.createElement("span");
 		if(guiButtons[i] != "|") {
-			tElem.id = guiButtons[i];
-			tElem.className = (guiButtons[i] =="tool-antialiasing" && antiAliasing) ? "button-active" : "button";
-			tElem.innerHTML = actLayout[guiButtons[i]].Title;
-			tElem.setAttribute("onclick", actLayout[guiButtons[i]].Operation);
-			buttonsBarDiv.appendChild(tElem);	
+			button.id = guiButtons[i];
+			button.className = (guiButtons[i] =="tool-antialiasing" && antiAliasing) ? "button-active" : "button";
+			button.innerHTML = actLayout[guiButtons[i]].title;
+			button.setAttribute("onclick", actLayout[guiButtons[i]].operation);
+			buttonsBarDiv.appendChild(button);
 			setElemDesc(guiButtons[i]);
 		} else {
-			tElem.className = "vertical";	
-			tElem.innerHTML = "&nbsp;";
-			buttonsBarDiv.appendChild(tElem);	
+			button.className = "vertical";
+			button.innerHTML = "&nbsp;";
+			buttonsBarDiv.appendChild(button);
 		}
-	}
+	};
 
-	for (i in tools)
-		updateColor(tools[i].color, i);
+	for (var i = 0; i < toolPresets.length; i++) {
+		updateColor(toolPresets[i].color, i);
+	};
 
 	debugDiv = document.createElement("div");	
-	sketcher.appendChild(debugDiv);
+	rootDiv.appendChild(debugDiv);
 
 	updateDebugScreen();
 	updatePalette();
@@ -433,7 +358,7 @@ function init()
 }
 
 function setElemDesc(elem, desc) {
-	desc = desc || actLayout[elem].Description;
+	desc = desc || actLayout[elem].description;
 	var k = kbLayout[elem];
 	document.getElementById(elem).title = desc + (elem ?  (" (" + 
 		descKeyCode(k) + ")") : "");
@@ -469,8 +394,8 @@ function updatePalette() {
 	if(!!window.localStorage) //ie-ie
 		window.localStorage.lastPalette = currentPalette;
 
-	while (paletteElem.childNodes.length) {
-		paletteElem.removeChild(paletteElem.childNodes[0])
+	while (paletteDiv.childNodes.length) {
+		paletteDiv.removeChild(paletteDiv.childNodes[0])
 	}
 
 	var colCount = 0,
@@ -478,7 +403,7 @@ function updatePalette() {
 	var colDesc = new Array();
 
 	var paletteTable = document.createElement("table");
-	paletteElem.appendChild(paletteTable);
+	paletteDiv.appendChild(paletteTable);
 	var paletteRow = document.createElement("tr");
 	var colorDesc = "";
 
@@ -501,7 +426,7 @@ function updatePalette() {
 			paletteTable.appendChild(paletteRow);
 			paletteRow = document.createElement("tr");
 			colCount = -1;
-			rowCount ++;
+			rowCount++;
 		}
 		if (currentPalette == "history" && colCount == 16) {
 			paletteTable.appendChild(paletteRow);
@@ -524,78 +449,68 @@ function updatePalette() {
 			paletteCell.appendChild(palettine);
 			paletteRow.appendChild(paletteCell);
 		}
-		colCount ++;
+		colCount++;
 	}
 	paletteTable.appendChild(paletteRow);
 }
 
 function updatePosition(event) {
-	x = event.pageX;
-	y = event.pageY;
-	x -= canvas.offsetLeft;
-	y -= canvas.offsetTop;
+	mousePosition.x = event.pageX - canvas.offsetLeft;
+	mousePosition.y = event.pageY - canvas.offsetTop;
 }
 
 function drawCursor () {
-	if (x >= 0 && x < canvasWidth && y >= 0 && y < canvasHeight) {
-		context.beginPath();
-		context.lineWidth = 1;
-		if (precisePreview) {
-			context.fillStyle = "rgba(" + tool.color + ", " + tool.opacity + ")";
-			context.shadowBlur = tool.shadow;
-			context.shadowColor = "rgb(" + tool.color + ")";
-		}
-		else {
-			context.strokeStyle = "rgb(" + tool.color + ")";
-			context.shadowBlur = 0;
-		}
-		context.arc(x, y, tool.width / 2, 0, Math.PI*2, false);
-		context.closePath();
-		precisePreview ? context.fill() : context.stroke();
-		if (!neverFlushCursor)
-			flushCursor = true;
+	if (mousePosition.x < 0 || mousePosition.x > CANVAS_WIDTH || mousePosition.y < 0 || mousePosition.y > CANVAS_HEIGHT) {
+		return;
 	}
+	context.beginPath();
+	context.lineWidth = 1;
+	if (precisePreview) {
+		context.fillStyle = "rgba(" + tool.color + ", " + tool.opacity + ")";
+		context.shadowBlur = tool.shadow;
+		context.shadowColor = "rgb(" + tool.color + ")";
+	}
+	else {
+		context.strokeStyle = "rgb(" + tool.color + ")";
+		context.shadowBlur = 0;
+	}
+	context.arc(mousePosition.x, mousePosition.y, tool.width / 2, 0, Math.PI*2, false);
+	context.closePath();
+	precisePreview ? context.fill() : context.stroke();
+	if (!neverFlushCursor)
+		flushCursor = true;
 }
 
 function cDraw(event) {
-
 	updatePosition(event);
-
 	updateDebugScreen();
 
 	if ((flushCursor || neverFlushCursor) && !(lowQMode && activeDrawing)) {
-		context.putImageData(history.array[history.position], 0, 0);
+		context.putImageData(history.current(), 0, 0);
 	}
 
 	if (activeDrawing) {
-		var tX = pX, tY = pY;
-		pX = smoothMode ? parseInt(x * 0.08 + pX * 0.92) : x;
-		pY = smoothMode ? parseInt(y * 0.08 + pY * 0.92) : y;
-		if(!antiAliasing) { //This probably would require massive optimization. Blame W3C.
-			while(1) {
-				for (i = 0; i < tool.width; i++) {
-					var rC = Math.sqrt(1 - Math.pow(-1 + (i + 0.5) / tool.width * 2, 2));
-					context.moveTo(parseInt(tX - tool.width * rC / 2) + globalOffs_1, tY + globalOffset - parseInt(tool.width / 2) + i);
-					context.lineTo(parseInt(tX + tool.width * rC / 2) - globalOffset, tY + globalOffset - parseInt(tool.width / 2) + i);
-				}
-				tX = parseInt((pX + tX) / 2);
-				tY = parseInt((pY + tY) / 2);
-				//if(tX == pX && tY == pY) //Uncomment this and your system will suddenly crash.
-					break;
-			}
+		if (smoothMode) {
+			// Плохая реализация, линия едет только пока мышь двигается.
+			previousMousePosition.x = Math.floor(mousePosition.x * 0.08 + previousMousePosition.x * 0.92);
+			previousMousePosition.y = Math.floor(mousePosition.y * 0.08 + previousMousePosition.y * 0.92);
+		} else {
+			previousMousePosition.copyFrom(mousePosition);
 		}
-		else
-			context.lineTo(pX + globalOffset, pY + globalOffset);
+
+		if (antiAliasing) {
+			context.lineTo(previousMousePosition.x + globalOffset, previousMousePosition.y + globalOffset);
+		} else {
+			// Все равно тот код придется преписать с нуля.
+		}
 		context.stroke();
-	} else
-		if (neverFlushCursor && !lowQMode)
-			drawCursor();
+	} else if (neverFlushCursor && !lowQMode) {
+		drawCursor();
+	}
 }
 
 function cDrawStart(event) {
-	pX = x;
-	pY = y;
-
+	previousMousePosition.copyFrom(mousePosition);
 	updatePosition(event);
 	//canvas.focus();
 	event.preventDefault();
@@ -607,8 +522,8 @@ function cDrawStart(event) {
 		event.stopPropagation();
 		event.cancelBubble = true;
 
-		var t = tools[(event.which == 1) ? 0 : 1];
-		context.putImageData(history.array[history.position], 0, 0);
+		var t = toolPresets[(event.which == 1) ? 0 : 1];
+		context.putImageData(history.current(), 0, 0);
 		activeDrawing = true;
 		context.lineWidth = antiAliasing ? t.width : 1;
 		context.shadowBlur = t.shadow;
@@ -618,14 +533,12 @@ function cDrawStart(event) {
 		context.lineCap = "round";
 		context.beginPath();
 		if(antiAliasing) {
-			context.moveTo(x + globalOffset, y + globalOffset);
-			context.lineTo(x + globalOffs_1, y + globalOffs_1);
+			context.moveTo(mousePosition.x + globalOffset, mousePosition.y + globalOffset);
+			context.lineTo(mousePosition.x + globalOffs_1, mousePosition.y + globalOffs_1);
 			context.stroke();
 		}
 		else
 			cDraw(event);
-		vX = x;
-		vY = y;
 	}
 	return false;
 }
@@ -633,7 +546,7 @@ function cDrawStart(event) {
 function cDrawEnd(event) {
 	//Saving in history:
 	if (activeDrawing) {
-		context.putImageData(history.array[history.position], 0, 0);
+		context.putImageData(history.current(), 0, 0);
 		context.stroke();
 		context.closePath();
 		history.refresh();
@@ -642,25 +555,18 @@ function cDrawEnd(event) {
 	updateDebugScreen();
 }
 
-function cDrawRestore(event) {
-	if (activeDrawing)
-		context.moveTo(x + globalOffset, y + globalOffset);
-	updatePosition(event);
-	pX = x;
-	pY = y;
-}
-
 function cDrawCancel() {
 	if (activeDrawing) {
-		history.backward();
-		history.forward();
+		history.undo();
+		history.redo();
 	}
 	activeDrawing=false;
 	updateDebugScreen();
 }
 
 function cCopyColor() {
-	var rgba = history.array[history.position].data, i = (x+y*canvasWidth)*4;
+	var rgba = history.current().data,
+	i = (mousePosition.x+mousePosition.y*CANVAS_WIDTH)*4;
 	var hex = (rgba[i] * 65536 + rgba[i+1] * 256 + rgba[i+2]).toString(16);
 	while (hex.length < 6) {
 		hex = "0" + hex;
@@ -676,17 +582,17 @@ function cLWChange(event) {
 		if (event.ctrlKey)
 			tool.opacity = (parseFloat(tool.opacity) - 0.05).toFixed(2);
 		else if (event.shiftKey)
-			tool.shadow --;
+			tool.shadow--;
 		else
-			tool.width --;
+			tool.width--;
 	}
 	if (delta < 0) {
 		if (event.ctrlKey)
 			tool.opacity = (parseFloat(tool.opacity) + 0.05).toFixed(2);
 		else if (event.shiftKey)
-			tool.shadow ++;
+			tool.shadow++;
 		else
-			tool.width ++;
+			tool.width++;
 	}
 
 	updateDebugScreen();
@@ -695,19 +601,19 @@ function cLWChange(event) {
 
 function updateDebugScreen() {
 	if (debugMode) {
-		debugDiv.innerHTML = "Cursor @" + x + ":" + y + "<br />Diff: " + (x - pX) + ":" + (y - pY) + "<br />FPS: " + fps;
-		ticks ++;
+		debugDiv.innerHTML = "Cursor @" + mousePosition.x + ":" + mousePosition.y + "<br />Diff: " + (mousePosition.x - previousMousePosition.x) + ":" + (mousePosition.y - previousMousePosition.y) + "<br />FPS: " + fps;
+		ticks++;
 	}
 }
 
 function clearScreen(toolIndex) {
-	context.fillStyle = "rgb(" + tools[toolIndex].color + ")";
-	context.fillRect(0, 0, canvasWidth, canvasHeight);
+	context.fillStyle = "rgb(" + toolPresets[toolIndex].color + ")";
+	context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 	history.refresh();
 }
 
 function invertColors() {
-	var buffer = history.array[history.position];
+	var buffer = history.current();
 	for (var i = 0; i < buffer.data.length; i += 4)
 		for (var j = 0; j < 3; j++)
 			buffer.data[i + j] = 255 - buffer.data[i + j];
@@ -716,27 +622,29 @@ function invertColors() {
 }
 
 function updateSliders(initiator) {
-	var m = initiator || 0;
+	initiator = initiator || 0;
 
-	if (m > 0) {
-		var s = (m == 2 ? "-text" : "");
+	if (initiator > 0) {
+		var s = (initiator == 2 ? "-text" : "");
 		tool.shadow	= document.getElementById("tool-shadow" + s).value;
 		tool.width	= document.getElementById("tool-width" + s).value;
 		tool.opacity	= document.getElementById("tool-opacity" + s).value;
 		//tool.turnLimit	= document.getElementById("tool-turnlimit" + s).value;
 	}
 
-	if (tool.opacity <= toolLimits.opacity[0]) tool.opacity = toolLimits.opacity[0].toFixed(2); else
-	if (tool.opacity >= toolLimits.opacity[1]) tool.opacity = toolLimits.opacity[1].toFixed(2);
+	function fitInRange(val, limit) {
+		if(val < limit.min) {
+			return limit.min;
+		} else if(val > limit.max) {
+			return limit.max;
+		}
+		return val;
+	}
 
-	if (tool.width <= toolLimits.width[0]) tool.width = toolLimits.width[0]; else
-	if (tool.width >= toolLimits.width[1]) tool.width = toolLimits.width[1];
-
-	if (tool.shadow <= toolLimits.shadow[0]) tool.shadow = toolLimits.shadow[0]; else
-	if (tool.shadow >= toolLimits.shadow[1]) tool.shadow = toolLimits.shadow[1];
-
-	if (tool.turnLimit <=   0) tool.turnLimit = 0; else
-	if (tool.turnLimit >= 360) tool.turnLimit = 360;
+	fitInRange(tool.opacity, toolLimits.opacity);
+	fitInRange(tool.width, toolLimits.width);
+	fitInRange(tool.shadow, toolLimits.shadow);
+	fitInRange(tool.turnLimit, toolLimits.turnLimit);
 
 	document.getElementById("tool-shadow-text").value = tool.shadow;
 	document.getElementById("tool-width-text").value = tool.width;
@@ -751,21 +659,21 @@ function updateSliders(initiator) {
 	}
 
 	cDrawEnd();
-	var w = Math.max(tool.width, tools[1].width) + Math.max(tool.shadow, tools[1].shadow) * 2.5 + 7;
-	context.putImageData(history.array[history.position], 0, 0,
-		parseInt(x) - w / 2, parseInt(y) - w / 2, w, w);
+	var w = Math.max(tool.width, toolPresets[1].width) + Math.max(tool.shadow, toolPresets[1].shadow) * 2.5 + 7;
+	context.putImageData(history.current(), 0, 0,
+		Math.floor(mousePosition.x) - w / 2, Math.floor(mousePosition.y) - w / 2, w, w);
 	drawCursor();
 }
 
 function swapTools(eraser) {
 	if(eraser) {
 		for (key in tool)
-			tool[key] = tools[2][key];
+			tool[key] = toolPresets[2][key];
 	}
 	else {
-		var back = tools[0];
-		tool = tools[0] = tools[1];
-		tools[1] = back;
+		var back = toolPresets[0];
+		tool = toolPresets[0] = toolPresets[1];
+		toolPresets[1] = back;
 		updateColor(0,1);
 	}
 	updateColor(tool.color);
@@ -773,50 +681,50 @@ function swapTools(eraser) {
 }
 
 function updateColor(value, toolIndex) {
-	var t = tools[toolIndex || 0];
-	var c = cElem;
-	var v = value || c.value;
-	var regShort = /^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/i;
-	var regLong = /^#[0-9a-fA-F]{6}$/i;
-	var regRGB = /^([0-9]{1,3}),\s*([0-9]{1,3}),\s*([0-9]{1,3})/;
-	if (regRGB.test(v))
-	{
-		var a = (t.color = v).split(new RegExp(",\s*"));
-		v = "#";
-		for (i in a) {
+	var t = toolPresets[toolIndex || 0];
+	value = value || colorInput.value;
+	var regShort = /^#([0-9A-F])([0-9A-F])([0-9A-F])$/i;
+	var regLong = /^#[0-9A-F]{6}$/i;
+	var regRGB = /^(\d{1,3})[^\d]*?(\d{1,3})[^\d]*?(\d{1,3})/;
+	if (regRGB.test(value)) {
+		var a = regRGB.exec(value);
+		value = "#"
+		for (var i = 1; i < a.length; i++) {
 			a[i] = Math.max(Math.min(parseInt(a[i]), 255), 0);
-			v += ((a[i] = parseInt(a[i]).toString(16)).length == 1) ? "0" + a[i] : a[i];
-		}
+			value += ((a[i] < 10) ? "0" : "") + a[i].toString(16);
+		};
 	} else {
-		if (regShort.test(v))
-			v = v.replace(regShort, "#$1$1$2$2$3$3");
-		if (!regLong.test(v))
+		if (regShort.test(value))
+			value = value.replace(regShort, "#$1$1$2$2$3$3");
+		if (!regLong.test(value))
 			return;
-		if (value != "") {
-			t.color = parseInt(v.substr(1,2), 16) + ", "
-				+ parseInt(v.substr(3,2), 16) + ", "
-				+ parseInt(v.substr(5,2), 16);
-		}
+	}
+	if (value != "") {
+		t.color = parseInt(value.substr(1,2), 16) + ", "
+			+ parseInt(value.substr(3,2), 16) + ", "
+			+ parseInt(value.substr(5,2), 16);
 	}
 	if (t == tool) {
-		c.value = v;
+		colorInput.value = value;
 	}
 	document.getElementById((t == tool) ? "canva-fill" : "canva-delete").style.background = "rgb(" + t.color + ")";
 
+	function getContrastColor(color) {
+		return (color >> 16) + ((color >> 8) & 0xFF) + (color & 0xFF) > 380 ? "black" : "white"
+	}
+
 	//inverted color
-	var m = parseInt(v.substr(1), 16);
-	var b = parseInt(m / 65536) + parseInt(m / 256) % 256 + parseInt(m % 256);
-	document.getElementById((t == tool) ? "canva-fill" : "canva-delete").style.color = b > 380 ? "black" : "white";
+	document.getElementById((t == tool) ? "canva-fill" : "canva-delete").style.color = getContrastColor(parseInt(value.substr(1), 16));
 
 	//adding to history palette:
 	var found = palette["history"].length;
-	for (i = 0; i < found; i ++)
-		if (palette["history"][i] == v)
+	for (i = 0; i < found; i++)
+		if (palette["history"][i] == value)
 			found = i;
 
-	for (i = Math.min(found, 64 - 1); i > 0; i --) //stores only limited count of specimens
+	for (i = Math.min(found, 64 - 1); i > 0; i--) //stores only limited count of specimens
 		palette["history"][i] = palette["history"][i - 1];
-	palette["history"][0] = v;
+	palette["history"][0] = value;
 
 	if (currentPalette == "history")
 		updatePalette();
@@ -826,21 +734,20 @@ function updateColor(value, toolIndex) {
 }
 
 function updateButtons() {
-	setElemDesc("canva-jpeg", actLayout["canva-jpeg"].Description + " (≈" + (canvas.toDataURL("image/jpeg").length / 1300).toFixed(0) + " kb)", "canva.jpeg");
-	setElemDesc("canva-png", actLayout["canva-png"].Description + " (≈" + (canvas.toDataURL().length / 1300).toFixed(0) + " kb)", "canva.png");
+	setElemDesc("canva-jpeg", actLayout["canva-jpeg"].description + " (≈" + (canvas.toDataURL("image/jpeg").length / 1300).toFixed(0) + " kb)", "canva.jpeg");
+	setElemDesc("canva-png", actLayout["canva-png"].description + " (≈" + (canvas.toDataURL().length / 1300).toFixed(0) + " kb)", "canva.png");
 
 	document.getElementById("history-redo").className = (history.position == history.positionMax ? "button-disabled" : "button");
 	document.getElementById("history-undo").className = (history.position == 0 ? "button-disabled" : "button");
-
 }
 
 function cHotkeys(k) {
 	//if (hki != 0)
 		for (kbk in kbLayout) {			
 			if (kbLayout[kbk] == k) {
-				eval(actLayout[kbk].Operation);
-				if(!(actLayout[kbk].Once || false)) {
-					hkPressed = true;
+				eval(actLayout[kbk].operation);
+				if(!(actLayout[kbk].once || false)) {
+					hotkeyPressed = true;
 					return true;
 				}
 			}
@@ -850,21 +757,20 @@ function cHotkeys(k) {
 }
 
 function cHotkeysStart(event) {
-	if (!hkPressed) {		
+	if (!hotkeyPressed) {		
 		var k = Math.min(event.keyCode, 255) //preventing from some bad things, that can happen
 			+ (event.ctrlKey ? CTRL : 0)
 			+ (event.shiftKey ? SHIFT : 0)
 			+ (event.altKey ? ALT : 0)
 			+ (event.metaKey ? META : 0)
-		if (x >= 0 && x < canvasWidth && y >= 0 && y < canvasHeight) {
+		if (mousePosition.x >= 0 && mousePosition.x < CANVAS_WIDTH && mousePosition.y >= 0 && mousePosition.y < CANVAS_HEIGHT) {
 			event.preventDefault();
 			event.returnValue = false;
 			if (cHotkeys(k)) {				
 				hki = setInterval('cHotkeys(' + k +')', 100);
 			}
 		}
-	}
-	else {
+	} else {
 		event.preventDefault();
 		event.returnValue = false;
 	}
@@ -872,18 +778,13 @@ function cHotkeysStart(event) {
 
 function cHotkeysEnd(event) {
 	clearInterval(hki);
-	hkPressed = false;
+	hotkeyPressed = false;
 	event.preventDefault();
 	event.returnValue = false;
 }
 
-function toolModify(id, param, inc, value) {
-	switch (param) {
-		case 0: tools[id].opacity = (inc == 0 ? value : (tools[id].opacity + inc)).toFixed(2); break;
-		case 1: tools[id].width = (inc == 0 ? value : (tools[id].width + inc)); break;
-		case 2: tools[id].shadow = (inc == 0 ? value : (tools[id].shadow + inc)); break;
-		case 3: tools[id].turnLimit = (inc == 0 ? value : (tools[id].turnLimit + inc)); break;
-	}
+function toolModify(index, param, inc, value) {
+	toolPresets[index][param] = (inc == 0 ? value : (toolPresets[index][param] + inc)).toFixed(2); 
 	updateSliders();
 }
 
@@ -941,3 +842,150 @@ descKeyCode(kbLayout["tool-width.10"]) + "—" + descKeyCode(kbLayout["tool-widt
 В поле код можно вводить цвета в трёх видах: «#xxxxxx», «#xxx», «d,d,d», где x  — любая шестнадцатиречная цифра (0—f), d — десятеричное число в диапазоне от 0 до 255. Всё это в формате RGB.\n\n\
 Feijoa Sketch " + infoVersion + " by Genius,  " + infoDate);
 }
+
+/*==============================================================================
+                                    History
+==============================================================================*/
+
+function History(storage) {
+	this.storage = storage;
+	this.array = new Array(this.storage);
+	this.position = 0;
+	this.positionMax = 0;
+	this.lastAutoSaveTime = new Date().getTime(),
+	this.autoSaveEnabled = true;
+	this.autoSaveInterval = 60000;
+}
+
+History.prototype.refresh = function() {
+	if (this.position < this.storage - 1) {
+		this.position++;
+		this.positionMax = this.position;
+	} else {
+		this.array.splice(0, this.array.length - this.storage);
+	}
+	this.array[this.position] = context.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+	if (this.autoSaveEnabled) {
+		var currentTime = new Date().getTime();
+		if (currentTime - this.lastAutoSaveTime > this.autoSaveInterval) {
+			this.storePic(true);
+			this.lastAutoSaveTime = currentTime;
+		}
+	}
+	updateDebugScreen();
+	updateButtons();
+};
+
+History.prototype.undo = function() {
+	if (this.position > 0) {
+		this.position--;
+	}
+	context.putImageData(this.array[this.position], 0, 0);
+	updateDebugScreen();
+	updateButtons();
+};
+
+History.prototype.redo = function() {
+	if (this.position < this.storage - 1 && this.position < this.positionMax) {
+		this.position++;
+	}
+	context.putImageData(this.array[this.position], 0, 0);
+	updateDebugScreen();
+	updateButtons();
+};
+
+History.prototype.storePic = function(auto) {
+	auto = auto || false
+	if (auto || confirm("Вы уверены, что хотите сохранить данные в Local Storage?")) {
+		var jpgData = canvas.toDataURL("image/jpeg");
+		var pngData = canvas.toDataURL();
+		if(!!window.localStorage)
+			window.localStorage.recovery = (jpgData.length < pngData.length ? jpgData : pngData);
+		else if (!auto)
+			alert("Local Storage не поддерживается.");
+	}
+};
+
+History.prototype.extractPic = function(auto) {
+	auto = auto || false
+	var image = new Image();
+	if(!!window.localStorage)
+		image.src = window.localStorage.recovery;
+	else if (!auto)
+		alert("Local Storage не поддерживается.");
+	context.drawImage(image, 0, 0);
+	this.refresh();
+};
+
+History.prototype.current = function() {
+	return this.array[this.position];
+};
+
+/*==============================================================================
+                                    Point
+==============================================================================*/
+
+/*http://help.adobe.com/en_US/FlashPlatform/reference/actionscript/3/flash/geom/Point.html*/
+function Point(x, y){
+	this.x = x || 0;
+	this.y = y || 0;
+};
+
+Point.prototype.length = function(){
+	return Math.sqrt(this.x * this.x + this.y * this.y);
+};
+
+Point.prototype.add = function(v){
+	return new Point(this.x + v.x, this.y + v.y);
+};
+
+Point.prototype.clone = function(){
+	return new Point(this.x, this.y);
+};
+
+Point.prototype.copyFrom = function(sourcePoint) {
+	this.x = sourcePoint.x;
+	this.y = sourcePoint.y;
+};
+
+Point.prototype.equals = function(toCompare){
+	return this.x == toCompare.x && this.y == toCompare.y;
+};
+
+Point.prototype.normalize = function(thickness){
+	var l = this.length();
+	this.x = this.x / l * thickness;
+	this.y = this.y / l * thickness;
+};
+
+Point.prototype.offset = function(dx, dy){
+	this.x += dx;
+	this.y += dy;
+};
+
+Point.prototype.setTo = function(x, y) {
+	this.x = x;
+	this.y = y;
+};
+
+Point.prototype.subtract = function(v){
+	return new Point(this.x - v.x, this.y - v.y);
+};
+
+Point.prototype.toString = function(){
+	return "(x=" + this.x + ", y=" + this.y + ")";
+};
+
+Point.distance = function(pt1, pt2){
+	var x = pt1.x - pt2.x;
+	var y = pt1.y - pt2.y;
+	return Math.sqrt(x * x + y * y);
+};
+
+Point.interpolate = function(pt1, pt2, f){
+	return new Point((pt1.x + pt2.x) * f, (pt1.y + pt2.y) * f);
+};
+
+Point.polar = function(len, angle){
+	return new Point(len * Math.sin(angle), len * Math.cos(angle));
+};
