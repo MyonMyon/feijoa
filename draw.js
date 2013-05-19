@@ -1,5 +1,5 @@
-var infoVersion = "v1.6.16";
-var infoDate = "May 18-19, 2013"
+var infoVersion = "v1.7.0 beta 1";
+var infoDate = "May 19, 2013"
 
 var sketcher, canvas, context, sendForm,
 	bottomElem, sideElem, debugElem,
@@ -58,11 +58,113 @@ var fps = 0,
 	ticks = 0,
 	fpsi = 0;
 
-var paletteDesc = {"combo" : "Комбинированная", "safe" : "Web 216", "feijoa" : "Feijoa", "touhou" : "Тошки", "history" : "История"};
-var palette = new Array(); //"@b" breaks the line, "@r" gives name to a new row
-	palette["combo"] = [
-		        "@r", "Классическая", "#000000", "#000080", "#008000", "#008080", "#800000", "#800080", "#808000", "#c0c0c0"
-		, "@b", "@r", "", "#808080", "#0000ff", "#00ff00", "#00ffff", "#ff0000", "#ff00ff", "#ffff00", "#ffffff"
+var palettes = new Array(); //"@b" breaks the line, "@r" gives name to a new row
+	palettes["combo"] = 
+	{
+		"label" : "Combo",
+		"groups" : [
+			{
+				"label" : "Classic",
+				"show" : 0,
+				"swatches" : [
+					{"color" : "#000000", "label" : "Black"},
+					{"color" : "#000080", "label" : ""},
+					{"color" : "#008000", "label" : ""},
+					{"color" : "#008080", "label" : ""},
+					{"color" : "#800000", "label" : ""},
+					{"color" : "#800080", "label" : ""},
+					{"color" : "#808000", "label" : ""},
+					{"color" : "#C0C0C0", "label" : ""},
+					{"color" : "#808080", "label" : ""},
+					{"color" : "#0000ff", "label" : ""},
+					{"color" : "#00FF00", "label" : ""},
+					{"color" : "#00FFFF", "label" : ""},
+					{"color" : "#FF0000", "label" : ""},
+					{"color" : "#FF00FF", "label" : ""},
+					{"color" : "#FFFF00", "label" : ""},
+					{"color" : "#FFFFFF", "label" : ""}
+				]
+			},
+			{
+				"label" : "CGA",
+				"show" : 0,
+				"swatches" : [
+					{"color" : "#000", "label" : "Black"},
+					{"color" : "#00A", "label" : ""},
+					{"color" : "#0A0", "label" : ""},
+					{"color" : "#0AA", "label" : ""},
+					{"color" : "#A00", "label" : ""},
+					{"color" : "#A0A", "label" : ""},
+					{"color" : "#AA0", "label" : ""},
+					{"color" : "#AAA", "label" : ""},
+					{"color" : "#555", "label" : ""},
+					{"color" : "#55F", "label" : ""},
+					{"color" : "#5F5", "label" : ""},
+					{"color" : "#5FF", "label" : ""},
+					{"color" : "#F55", "label" : ""},
+					{"color" : "#F5F", "label" : ""},
+					{"color" : "#FF5", "label" : ""},
+					{"color" : "#FFF", "label" : ""}
+				]
+			},
+			{
+				"label" : "Gray",
+				"show" : 0,
+				"swatches" : [
+					{"color" : "#000", "label" : ""},
+					{"color" : "#111", "label" : ""},
+					{"color" : "#222", "label" : ""},
+					{"color" : "#333", "label" : ""},
+					{"color" : "#444", "label" : ""},
+					{"color" : "#555", "label" : ""},
+					{"color" : "#666", "label" : ""},
+					{"color" : "#777", "label" : ""},
+					{"color" : "#888", "label" : ""},
+					{"color" : "#999", "label" : ""},
+					{"color" : "#AAA", "label" : ""},
+					{"color" : "#BBB", "label" : ""},
+					{"color" : "#CCC", "label" : ""},
+					{"color" : "#DDD", "label" : ""},
+					{"color" : "#EEE", "label" : ""},
+					{"color" : "#FFF", "label" : ""},
+				]
+			},
+			{
+				"label" : "Windows 7",
+				"show" : 0,
+				"swatches" : [
+					{"color" : "#000", "label" : ""},
+					{"color" : "#111", "label" : ""},
+					{"color" : "#222", "label" : ""},
+					{"color" : "#333", "label" : ""},
+					{"color" : "#444", "label" : ""},
+					{"color" : "#555", "label" : ""},
+					{"color" : "#666", "label" : ""},
+					{"color" : "#777", "label" : ""},
+					{"color" : "#888", "label" : ""},
+				]
+			},
+			{
+				"label" : "Windows 7",
+				"show" : 0,
+				"swatches" : [
+					{"color" : "#000", "label" : ""},
+					{"color" : "#111", "label" : ""},
+					{"color" : "#222", "label" : ""},
+					{"color" : "#333", "label" : ""},
+					{"color" : "#444", "label" : ""},
+					{"color" : "#555", "label" : ""},
+					{"color" : "#666", "label" : ""},
+					{"color" : "#777", "label" : ""},
+					{"color" : "#888", "label" : ""},
+				]
+			}
+		]
+	};
+	/*
+		[
+		        "@r", "Классическая", "", "", "", "", "", "", "", ""
+		, "@b", "@r", "", "", "", "", "", "#ff0000", "#ff00ff", "#ffff00", "#ffffff"
 
 		, "@b", "@r", "CGA", "#000", "#00a", "#0a0", "#0aa", "#a00", "#a0a", "#aa0", "#aaa"
 		, "@b", "@r", "", "#555", "#55f", "#5f5", "#5ff", "#f55", "#f5f", "#ff5", "#fff"
@@ -117,10 +219,11 @@ var palette = new Array(); //"@b" breaks the line, "@r" gives name to a new row
 		, "@b", "@r", "Ику", "#000000", "#ffffff", "#5940c0", "#ee0501"
 		, "@b", "@r", "Тенши", "#ffffff", "#6dcef6", "#0073c1", "#f90b0b", "#405231", "#000000", "#f5d498", "#7cc074"
 		];
-
 	palette["history"] = (!!window.localStorage && !!window.localStorage.historyPalette) ? JSON.parse(window.localStorage.historyPalette) : [];
+	*/
 
-var currentPalette = (!!window.localStorage && !!window.localStorage.lastPalette) ? window.localStorage.lastPalette : "classic";
+//var currentPalette = (!!window.localStorage && !!window.localStorage.lastPalette) ? window.localStorage.lastPalette : "combo";
+var currentPalette = "combo";
 
 var hki = 0; //Hotkey interval for Opera
 var hkPressed = false;
@@ -357,8 +460,8 @@ Feijoa Sketch " + infoVersion + " by Genius,  " + infoDate;
 	paletteElem.id = "palette";
 	sideElem.appendChild(paletteElem);
 
-	for (tPalette in paletteDesc) {
-		paletteSelect.options[paletteSelect.options.length] = new Option(paletteDesc[tPalette], tPalette);
+	for (tPalette in palettes) {
+		paletteSelect.options[paletteSelect.options.length] = new Option(palettes[tPalette].label, tPalette);
 		if (tPalette == currentPalette)
 			paletteSelect.options[paletteSelect.options.length - 1].selected = true;
 	}
@@ -465,16 +568,29 @@ function updatePalette() {
 		paletteElem.removeChild(paletteElem.childNodes[0])
 	}
 
-	var colCount = 0,
-		rowCount = 0;
-	var colDesc = new Array();
-
 	var paletteTable = document.createElement("table");
 	paletteElem.appendChild(paletteTable);
-	var paletteRow = document.createElement("tr");
-	var colorDesc = "";
+	var paletteRow;
 
-	for (tColor in palette[currentPalette]) {
+	for (cGroup in palettes[currentPalette].groups) {
+		paletteRow = document.createElement("tr");
+		var group = palettes[currentPalette].groups[cGroup];
+		for (cSwatch in group.swatches) {
+			var swatch = group.swatches[cSwatch];
+			var paletteCell = document.createElement("td");
+			var palettine = document.createElement("div");
+			palettine.className = "palettine";
+			palettine.title = group.label + ": " + swatch.color + (swatch.label ? (" (" + swatch.label + ")") : "");
+			palettine.style.background = swatch.color;
+			palettine.setAttribute("onclick", "updateColor('" + swatch.color + "', 0);");
+			palettine.setAttribute("oncontextmenu", "updateColor('" + swatch.color + "', 1); return false;");
+			paletteCell.appendChild(palettine);
+			paletteRow.appendChild(paletteCell);
+		}
+		paletteTable.appendChild(paletteRow);
+	}
+
+	/*for (tColor in palette[currentPalette]) {
 		var c = palette[currentPalette][tColor];
 		var paletteCell;
 		if (c == "@r") {
@@ -518,7 +634,7 @@ function updatePalette() {
 		}
 		colCount ++;
 	}
-	paletteTable.appendChild(paletteRow);
+	paletteTable.appendChild(paletteRow);*/
 }
 
 function updatePosition(event) {
@@ -819,14 +935,14 @@ function updateColor(value, toolIndex) {
 	document.getElementById((t == tool) ? "canva-fill" : "canva-delete").style.color = b > 380 ? "black" : "white";
 
 	//adding to history palette:
-	var found = palette["history"].length;
+	var found = 0;//palette["history"].length;
 	for (i = 0; i < found; i ++)
 		if (palette["history"][i] == v)
 			found = i;
 
 	for (i = Math.min(found, 64 - 1); i > 0; i --) //stores only limited count of specimens
 		palette["history"][i] = palette["history"][i - 1];
-	palette["history"][0] = v;
+	//palette["history"][0] = v;
 
 	if (currentPalette == "history")
 		updatePalette();
