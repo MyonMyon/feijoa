@@ -1,5 +1,5 @@
-var infoVersion = "v1.6.18";
-var infoDate = "May 25, 2013"
+var infoVersion = "v1.6.19";
+var infoDate = "May 25-26, 2013"
 
 var sketcher, canvas, context, sendForm,
 	bottomElem, sideElem, debugElem,
@@ -7,14 +7,81 @@ var sketcher, canvas, context, sendForm,
 
 var sliders = [];
 
-var cursor = {"posX" : -5, "posY" : -5, "prevX" : -5, "prevY" : -5};
-
 var	globalOffset = 0.5, //pixel offset
 	globalOffs_1 = globalOffset - 0.01;
 
 var activeDrawing = false;
 
 var sendButton = sendButton || false;
+
+//////////////////////////////////////////////////
+
+var cursor;
+
+function Cursor() {
+	this.posX = 0;
+	this.posY = 0;
+	this.prevX = 0;
+	this.prevY = 0;
+	this.flushNext = false;
+	this.neverFlush = true;
+	this.visual = document.createElement("div");	
+	sketcher.appendChild(this.visual);
+	this.visual.id = "cursor";
+}	
+
+Cursor.prototype.update = function(event) {
+	this.posX = event.pageX - canvas.offsetLeft;
+	this.posY = event.pageY - canvas.offsetTop;
+}
+
+Cursor.prototype.draw = function(event) {	
+	if (this.posX >= 0 && this.posX < cWidth &&
+		this.posY >= 0 && this.posY < cHeight) {
+		if(modes["app-compatible"]) {
+			context.beginPath();
+			context.lineWidth = 1;
+			if (modes["tool-preview"]) {
+				context.fillStyle = "rgba(" + tool.color + ", " + tool.opacity + ")";
+				context.shadowBlur = tool.shadow;
+				context.shadowColor = "rgb(" + tool.color + ")";
+			}
+			else {
+				context.strokeStyle = "rgb(" + tool.color + ")";
+				context.shadowBlur = 0;
+			}
+
+			context.arc(this.posX, this.posY, tool.width / 2, 0, Math.PI*2, false);
+			context.closePath();
+			modes["tool-preview"] ? context.fill() : context.stroke();
+			if (!this.neverFlush)
+				this.flushNext = true;
+		} else {
+			this.visual.style.display = "block";
+			this.visual.style.left = (this.posX + canvas.offsetLeft - tool.width / 2) + "px";
+			this.visual.style.top = (this.posY + canvas.offsetTop - tool.width / 2) + "px";
+			this.visual.style.width = Math.max(tool.width - 2, 0)  + "px";
+			this.visual.style.height = Math.max(tool.width - 2, 0) + "px";
+			this.visual.style.borderRadius = Math.max(tool.width - 2, 0)  / 2 + "px";
+			if(modes["tool-preview"]) {
+				this.visual.style.backgroundColor = "rgba(" + tool.color + "," + tool.opacity + ")";
+				this.visual.style.borderColor = "transparent";
+				this.visual.style.boxShadow = "0 0 " + tool.shadow + "px rgba(" + tool.color + "," + tool.opacity + ")";
+			} else {
+				this.visual.style.backgroundColor = "transparent";
+				this.visual.style.borderColor = "rgb(" + tool.color + ")";
+				this.visual.style.boxShadow = "none";
+			}
+		}
+	} else
+		this.hide();
+}
+
+Cursor.prototype.hide = function() {
+	this.visual.style.display = "none";
+}
+
+//////////////////////////////////////////////////
 
 var history;
 
@@ -65,11 +132,15 @@ History.prototype.push = function() {
 	updateButtons();
 }
 
+//////////////////////////////////////////////////
+
 var lastAutoSave = new Date().getTime(),
 	enableAutoSave = true;
 
 var cWidth = 600,
 	cHeight = 360; //may be not so constant in future
+
+//////////////////////////////////////////////////
 
 var toolPresets = [
 	{"opacity" : 1.00, "width" :  4, "shadow" : 0, "color" : "0, 0, 0"		} //Fore Default
@@ -85,8 +156,7 @@ var tools = [
 
 var toolLimits = {"opacity": [0.05, 1, 0.05], "width": [1, 128, 1], "shadow": [0, 20, 1], "turnLimit": [0, 180, 1]};
 
-var flushCursor = false,
-	neverFlushCursor = true;
+//////////////////////////////////////////////////
 
 var modes = {
 	"tool-lowquality": false
@@ -95,12 +165,15 @@ var modes = {
 ,	"tool-smooth": false
 ,	"tool-line": false
 ,	"app-help": false
+,	"app-compatible": false
 ,	"debug-mode": false
 	};
 
 var fps = 0,
 	ticks = 0,
 	fpsi = 0;
+
+//////////////////////////////////////////////////
 
 var paletteDesc = {"combo" : "Комбинированная", "safe" : "Web 216", "feijoa" : "Feijoa", "touhou" : "Тошки", "history" : "История"};
 var palette = new Array(); //"@b" breaks the line, "@r" gives name to a new row
@@ -166,6 +239,8 @@ var palette = new Array(); //"@b" breaks the line, "@r" gives name to a new row
 
 var currentPalette = (!!window.localStorage && !!window.localStorage.lastPalette) ? window.localStorage.lastPalette : "combo";
 
+//////////////////////////////////////////////////
+
 var hki = 0; //Hotkey interval for Opera
 var hkPressed = false;
 
@@ -207,6 +282,7 @@ var kbLayout = {
 	, "tool-shadow+" :				SHIFT + "W".charCodeAt(0)
 
 	, "app-help" :					112 //F1
+	, "app-compatible" :			114 //F3
 	, "app-settings" :				115 //F4
 
 	, "debug-mode" :				12 //CLEAR
@@ -255,6 +331,7 @@ var actLayout = {
 	, "tool-color" : 				{"title" : "Код цвета"}
 	, "tool-palette" : 				{"title" : "Палитра"}
 
+	, "app-compatible" :			{"operation" :	"switchMode('app-compatible')",	"title" : "?",		"small": "COMPAT",	"description" : "Режим совместимости",	"once" : true}
 	, "app-help" :					{"operation" :	"switchMode('app-help')",	"title" : "?",			"small": "HELP",	"description" : "Помощь",	"once" : true}
 	, "app-settings" :				{"operation" :	"alert('Not done yet.')",	"title" : "&#x263C;",	"small": "SETTINGS","description" : "Настройки","once" : true}
 
@@ -303,21 +380,32 @@ function init()
 	canvas = document.createElement("canvas");	
 	sketcher.appendChild(canvas);
 
+	cursor = new Cursor();
+
+	cursor.visual.addEventListener("mousedown", cDrawStart, false);
+	cursor.visual.addEventListener("mousemove", cDraw, false);
 	canvas.addEventListener("mousedown", cDrawStart, false);
 	canvas.addEventListener("mousemove", cDraw, false);
 	document.addEventListener("mouseup", cDrawEnd, false);
 	canvas.addEventListener("mouseout", cDraw, false);
 	canvas.addEventListener("mouseover", cDrawRestore, false);
-	document.addEventListener("mousemove", updatePosition, false);
+	document.addEventListener("mousemove", cursor.update, false);
 	document.addEventListener("keydown", cHotkeysStart, false);
 	document.addEventListener("keyup", cHotkeysEnd, false);
 
 	canvas.setAttribute("oncontextmenu", "return false;");
 	canvas.setAttribute("onscroll", "return false;");
 
+	cursor.visual.setAttribute("oncontextmenu", "return false;");
+	cursor.visual.setAttribute("onscroll", "return false;");
+
 	canvas.addEventListener("wheel", cLWChange, false);
 	canvas.addEventListener("mousewheel", cLWChange, false);
 	canvas.addEventListener("scroll", cLWChange, false);
+
+	cursor.visual.addEventListener("wheel", cLWChange, false);
+	cursor.visual.addEventListener("mousewheel", cLWChange, false);
+	cursor.visual.addEventListener("scroll", cLWChange, false);
 
 	canvas.width = cWidth;
 	canvas.height = cHeight;
@@ -566,42 +654,12 @@ function updatePalette() {
 	paletteTable.appendChild(paletteRow);
 }
 
-function updatePosition(event) {
-	cursor.posX = event.pageX;
-	cursor.posY = event.pageY;
-	cursor.posX -= canvas.offsetLeft;
-	cursor.posY -= canvas.offsetTop;
-}
-
-function drawCursor () {
-	if (cursor.posX >= 0 && cursor.posX < cWidth &&
-		cursor.posY >= 0 && cursor.posY < cHeight) {
-		context.beginPath();
-		context.lineWidth = 1;
-		if (modes["tool-preview"]) {
-			context.fillStyle = "rgba(" + tool.color + ", " + tool.opacity + ")";
-			context.shadowBlur = tool.shadow;
-			context.shadowColor = "rgb(" + tool.color + ")";
-		}
-		else {
-			context.strokeStyle = "rgb(" + tool.color + ")";
-			context.shadowBlur = 0;
-		}
-
-		context.arc(cursor.posX, cursor.posY, tool.width / 2, 0, Math.PI*2, false);
-		context.closePath();
-		modes["tool-preview"] ? context.fill() : context.stroke();
-		if (!neverFlushCursor)
-			flushCursor = true;
-	}
-}
-
 function cDraw(event) {
-	updatePosition(event);
+	cursor.update(event);
 
 	updateDebugScreen();
 
-	if ((flushCursor || neverFlushCursor) && !(modes["tool-lowquality"] && activeDrawing)) {
+	if ((cursor.flushNext || cursor.neverFlush) && !(modes["tool-lowquality"] && activeDrawing)) {
 		context.putImageData(history.current(), 0, 0);
 	}
 
@@ -621,7 +679,6 @@ function cDraw(event) {
 				}
 				tX = parseInt((pX + tX) / 2);
 				tY = parseInt((pY + tY) / 2);
-				//if(tX == cursor.prevX && tY == cursor.prevY) //Uncomment this and your system will suddenly crash.
 					break;
 			}			
 		} else {
@@ -638,15 +695,16 @@ function cDraw(event) {
 			}
 		}
 	} else
-		if (neverFlushCursor && !modes["tool-lowquality"])
-			drawCursor();
+		if (cursor.neverFlush && !modes["tool-lowquality"])
+			cursor.draw();
 }
 
 function cDrawStart(event) {
 	cursor.prevX = cursor.posX;
 	cursor.prevY = cursor.posY;
 
-	updatePosition(event);
+	cursor.update(event);
+	cursor.hide();
 	//canvas.focus();
 	event.preventDefault();
 	event.returnValue = false;
@@ -699,7 +757,7 @@ function cDrawEnd(event) {
 function cDrawRestore(event) {
 	if (activeDrawing)
 		context.moveTo(cursor.posX + globalOffset, cursor.posY + globalOffset);
-	updatePosition(event);
+	cursor.update(event);
 	cursor.prevX = cursor.posX;
 	cursor.prevY = cursor.posY;
 }
@@ -714,7 +772,7 @@ function cDrawCancel() {
 }
 
 function cCopyColor() {
-	var rgba = history.current().data, i = (x + y * cWidth) * 4;
+	var rgba = history.current().data, i = (cursor.posX + cursor.posY * cWidth) * 4;
 	var hex = (rgba[i] * 65536 + rgba[i + 1] * 256 + rgba[i + 2]).toString(16);
 	while (hex.length < 6) {
 		hex = "0" + hex;
@@ -802,7 +860,7 @@ function updateSliders(initiator) {
 	var w = Math.max(tool.width, tools[1].width) + Math.max(tool.shadow, tools[1].shadow) * 2.5 + 7;
 	context.putImageData(history.current(), 0, 0,
 		parseInt(cursor.posX) - w / 2, parseInt(cursor.posY) - w / 2, w, w);
-	drawCursor();
+	cursor.draw();
 }
 
 function setTool(toolID) {
@@ -941,7 +999,8 @@ function toolModify(id, param, inc, value) {
 }
 
 function switchMode(mode) {
-	document.getElementById(mode).className = (modes[mode] = !modes[mode]) ? "button-active" : "button";
+	if(document.getElementById(mode))
+		document.getElementById(mode).className = (modes[mode] = !modes[mode]) ? "button-active" : "button";
 	if (mode == "debug-mode") {
 		debugElem.innerHTML = "";
 
@@ -959,6 +1018,10 @@ function switchMode(mode) {
 	if (mode == "app-help") {		
 		sideElem.style.display = modes["app-help"] ? "none" : "";
 		helpElem.style.display = modes["app-help"] ? "" : "none";
+	}
+
+	if (mode == "app-compatible") {		
+		cursor.hide();
 	}
 }
 

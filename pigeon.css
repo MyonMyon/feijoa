@@ -17,6 +17,14 @@
 	margin: 4px;
 }
 
+#sketcher #cursor {
+	position: absolute;
+	border: 1px solid black;
+	width: 0px;
+	height: 0px;
+	display: none;
+}
+
 #sketcher #tools {
 	margin: 0 auto;
 	text-align: left;	
