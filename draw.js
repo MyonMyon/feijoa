@@ -1,5 +1,5 @@
-var infoVersion = "v1.6.17";
-var infoDate = "May 20, 2013"
+var infoVersion = "v1.6.18";
+var infoDate = "May 25, 2013"
 
 var sketcher, canvas, context, sendForm,
 	bottomElem, sideElem, debugElem,
@@ -16,10 +16,54 @@ var activeDrawing = false;
 
 var sendButton = sendButton || false;
 
-var historyStorage = 32;
-var history = new Array(historyStorage);
-var historyPosition = 0,
-	historyPositionMax = 0;
+var history;
+
+function History(size) {	
+	this.size = size;
+	this.container = new Array(this.size);
+	this.position = 0;
+	this.positionMax = 0;
+	this.container[0] = context.getImageData(0, 0, cWidth, cHeight);
+}
+
+History.prototype.current = function() {
+	return this.container[this.position];
+}
+
+History.prototype.undo = function() {
+	if (this.position > 0) 
+		this.position --;
+
+	context.putImageData(this.container[this.position], 0, 0);
+	updateButtons();
+}
+
+History.prototype.redo = function() {	
+	if (this.position < this.size - 1 && this.position < this.positionMax)
+		this.position ++;
+
+	context.putImageData(this.container[this.position], 0, 0);
+	updateButtons();
+}
+
+History.prototype.push = function() {
+	if (this.position < this.size - 1) {
+		this.position ++;
+		this.positionMax = this.position;
+	} else for(i = 0; i < this.size - 1; i ++)
+		this.container[i] = this.container[i + 1];
+
+	this.container[this.position] = context.getImageData(0, 0, cWidth, cHeight);
+
+	if (enableAutoSave) {
+		var dt = new Date().getTime();
+		if (dt - lastAutoSave > 60000) {
+			picTransfer('toLS',true);
+			lastAutoSave = dt;
+		}
+	}
+	updateButtons();
+}
 
 var lastAutoSave = new Date().getTime(),
 	enableAutoSave = true;
@@ -176,8 +220,8 @@ for (i = 1; i <= 10; i ++) {
 }
 
 var actLayout = { 
-	  "history-undo" :				{"operation" :	"historyOperation('undo')",	"title" : "&#x2190;",	"small": "UNDO",	"description" : "Назад"}
-	, "history-redo" :				{"operation" :	"historyOperation('redo')",	"title" : "&#x2192;",	"small": "REDO",	"description" : "Вперёд"}
+	  "history-undo" :				{"operation" :	"history.undo()",	"title" : "&#x2190;",	"small": "UNDO",	"description" : "Назад"}
+	, "history-redo" :				{"operation" :	"history.redo()",	"title" : "&#x2192;",	"small": "REDO",	"description" : "Вперёд"}
 	, "history-store" :				{"operation" :	"picTransfer('toLS')",	"title" : "&#x22C1;",	"small": "STORE",	"description" : "Сделать back-up",	"once" : true}
 	, "history-extract" :			{"operation" :	"picTransfer('fromLS')","title" : "&#x22C0;",	"small": "EXTRACT",	"description" : "Извлечь back-up",	"once" : true}
 
@@ -282,7 +326,8 @@ function init()
 
 	context.fillStyle = "white";
 	context.fillRect(0, 0, cWidth, cHeight);
-	history[0] = context.getImageData(0, 0, cWidth, cHeight);
+
+	history = new History(32);
 
 	sideElem = document.createElement("span");
 	sideElem.id = "tools";
@@ -557,7 +602,7 @@ function cDraw(event) {
 	updateDebugScreen();
 
 	if ((flushCursor || neverFlushCursor) && !(modes["tool-lowquality"] && activeDrawing)) {
-		context.putImageData(history[historyPosition], 0, 0);
+		context.putImageData(history.current(), 0, 0);
 	}
 
 	if (activeDrawing) {
@@ -581,7 +626,7 @@ function cDraw(event) {
 			}			
 		} else {
 			if(modes["tool-line"]) {
-				context.putImageData(history[historyPosition], 0, 0);
+				context.putImageData(history.current(), 0, 0);
 				context.beginPath();
 				context.moveTo(cursor.prevX + globalOffset, cursor.prevY + globalOffset);
 				context.lineTo(cursor.posX + globalOffset, cursor.posY + globalOffset);
@@ -613,7 +658,7 @@ function cDrawStart(event) {
 		event.cancelBubble = true;
 
 		var t = tools[(event.which == 1) ? 0 : 1];
-		context.putImageData(history[historyPosition], 0, 0);
+		context.putImageData(history.current(), 0, 0);
 		activeDrawing = true;
 		context.lineWidth = modes["tool-antialiasing"] ? t.width : 1;
 		context.shadowBlur = t.shadow;
@@ -642,10 +687,10 @@ function cDrawStart(event) {
 function cDrawEnd(event) {
 	//Saving in history:
 	if (activeDrawing) {
-		context.putImageData(history[historyPosition], 0, 0);
+		context.putImageData(history.current(), 0, 0);
 		context.stroke();
 		context.closePath();
-		historyOperation('push');
+		history.push();
 	}
 	activeDrawing = false;
 	updateDebugScreen();
@@ -661,15 +706,15 @@ function cDrawRestore(event) {
 
 function cDrawCancel() {
 	if (activeDrawing) {
-		historyOperation('undo');
-		historyOperation('redo');
+		history.undo();
+		history.redo();
 	}
 	activeDrawing = false;
 	updateDebugScreen();
 }
 
 function cCopyColor() {
-	var rgba = history[historyPosition].data, i = (x + y * cWidth) * 4;
+	var rgba = history.current().data, i = (x + y * cWidth) * 4;
 	var hex = (rgba[i] * 65536 + rgba[i + 1] * 256 + rgba[i + 2]).toString(16);
 	while (hex.length < 6) {
 		hex = "0" + hex;
@@ -712,16 +757,16 @@ function updateDebugScreen() {
 function clearScreen(toolIndex) {
 	context.fillStyle = "rgb(" + tools[toolIndex].color + ")";
 	context.fillRect(0, 0, cWidth, cHeight);
-	historyOperation('push');
+	history.push();
 }
 
 function invertColors() {
-	var buffer = history[historyPosition];
+	var buffer = history.current();
 	for (var i = 0; i < buffer.data.length; i += 4)
 		for (var j = 0; j < 3; j++)
 			buffer.data[i + j] = 255 - buffer.data[i + j];
 	context.putImageData(buffer, 0, 0);
-	historyOperation('push');
+	history.push();
 }
 
 function updateSliders(initiator) {
@@ -755,7 +800,7 @@ function updateSliders(initiator) {
 
 	cDrawEnd();
 	var w = Math.max(tool.width, tools[1].width) + Math.max(tool.shadow, tools[1].shadow) * 2.5 + 7;
-	context.putImageData(history[historyPosition], 0, 0,
+	context.putImageData(history.current(), 0, 0,
 		parseInt(cursor.posX) - w / 2, parseInt(cursor.posY) - w / 2, w, w);
 	drawCursor();
 }
@@ -835,43 +880,12 @@ function updateColor(value, toolIndex) {
 		window.localStorage.historyPalette = JSON.stringify(palette["history"]);
 }
 
-function historyOperation(opid) {
-	if (opid == 'undo' && historyPosition > 0) {
-		historyPosition --;
-	}
-	if (opid == 'redo' && historyPosition < historyStorage - 1 && historyPosition < historyPositionMax) {
-		historyPosition ++;
-	}
-	if (opid == 'undo' || opid == 'redo') {
-		context.putImageData(history[historyPosition], 0, 0);
-	}
-	if (opid == 'push') {
-		if (historyPosition < historyStorage - 1) {
-			historyPosition ++;
-			historyPositionMax = historyPosition;
-		}
-		else
-			for(i = 0; i < historyStorage - 1; i ++)
-				history[i] = history[i + 1];
-		history[historyPosition] = context.getImageData(0, 0, cWidth, cHeight);
-		if (enableAutoSave) {
-			var dt = new Date().getTime();
-			if (dt - lastAutoSave > 60000) {
-				picTransfer('toLS',true);
-				lastAutoSave = dt;
-			}
-		}
-	}
-	updateDebugScreen();
-	updateButtons();
-}
-
 function updateButtons() {
 	setElemDesc("canva-jpeg", actLayout["canva-jpeg"].description + " (≈" + (canvas.toDataURL("image/jpeg").length / 1300).toFixed(0) + " kb)", "canva.jpeg");
 	setElemDesc("canva-png", actLayout["canva-png"].description + " (≈" + (canvas.toDataURL().length / 1300).toFixed(0) + " kb)", "canva.png");
 
-	document.getElementById("history-redo").className = (historyPosition == historyPositionMax ? "button-disabled" : "button");
-	document.getElementById("history-undo").className = (historyPosition == 0 ? "button-disabled" : "button");
+	document.getElementById("history-redo").className = (history.position == history.positionMax ? "button-disabled" : "button");
+	document.getElementById("history-undo").className = (history.position == 0 ? "button-disabled" : "button");
 }
 
 function cHotkeys(k) {
@@ -938,7 +952,7 @@ function switchMode(mode) {
 	}
 
 	if (mode == "tool-line") {		
-		historyOperation('push');
+		history.push();
 		context.moveTo(cursor.posX + globalOffset, cursor.posY + globalOffset);
 	}
 
@@ -982,7 +996,7 @@ function picTransfer(value, auto) {
 				if (!!window.localStorage) {
 					image.src = window.localStorage.recovery;
 					context.drawImage(image, 0, 0);
-					historyOperation('push');
+					history.push();
 				} else if (!a)
 					alert("Local Storage не поддерживается.");
 			}
