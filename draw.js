@@ -1,5 +1,5 @@
-var infoVersion = "v1.6.19";
-var infoDate = "May 25-26, 2013"
+var infoVersion = "v1.6.20";
+var infoDate = "May 26, 2013";
 
 var sketcher, canvas, context, sendForm,
 	bottomElem, sideElem, debugElem,
@@ -31,8 +31,10 @@ function Cursor() {
 }	
 
 Cursor.prototype.update = function(event) {
-	this.posX = event.pageX - canvas.offsetLeft;
-	this.posY = event.pageY - canvas.offsetTop;
+	if(event) {
+		this.posX = event.pageX - canvas.offsetLeft;
+		this.posY = event.pageY - canvas.offsetTop;
+	}
 }
 
 Cursor.prototype.draw = function(event) {	
@@ -168,6 +170,9 @@ var modes = {
 ,	"app-compatible": false
 ,	"debug-mode": false
 	};
+
+if (!!window.localStorage && !!window.localStorage.modes)
+	modes = JSON.parse(window.localStorage.modes);
 
 var fps = 0,
 	ticks = 0,
@@ -1023,6 +1028,9 @@ function switchMode(mode) {
 	if (mode == "app-compatible") {		
 		cursor.hide();
 	}
+
+	if (!!window.localStorage)
+		window.localStorage.modes = JSON.stringify(modes);
 }
 
 function picTransfer(value, auto) {
