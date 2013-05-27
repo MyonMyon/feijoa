@@ -1,5 +1,5 @@
-var infoVersion = "v1.6.20";
-var infoDate = "May 26, 2013";
+var infoVersion = "v1.6.21";
+var infoDate = "May 27, 2013";
 
 var sketcher, canvas, context, sendForm,
 	bottomElem, sideElem, debugElem,
@@ -519,7 +519,7 @@ Feijoa Sketch " + infoVersion + " by Genius,  " + infoDate;
 		if(guiButtons[i] != "")
 			if(guiButtons[i] != "|") {
 				tElem.id = guiButtons[i];
-				tElem.className = (guiButtons[i] =="tool-antialiasing" && modes["tool-antialiasing"]) ? "button-active" : "button";
+				tElem.className = modes[guiButtons[i]] ? "button-active" : "button";
 				tElem.setAttribute("onclick", actLayout[guiButtons[i]].operation);
 				bottomElem.appendChild(tElem);	
 				setElemDesc(guiButtons[i],null,true);
