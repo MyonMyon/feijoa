@@ -258,7 +258,6 @@ var CTRL = 0x0100,
 var kbLayout = { 
 	  "history-undo" :				"Z".charCodeAt(0)
 	, "history-redo" :				"X".charCodeAt(0)
-	, "history-redo" :				"X".charCodeAt(0)
 	, "history-store" :				119 //F8
 	, "history-extract" :			120 //F9
 
@@ -391,6 +390,7 @@ function init()
 	cursor.visual.addEventListener("mousemove", cDraw, false);
 	canvas.addEventListener("mousedown", cDrawStart, false);
 	canvas.addEventListener("mousemove", cDraw, false);
+
 	document.addEventListener("mouseup", cDrawEnd, false);
 	canvas.addEventListener("mouseout", cDraw, false);
 	canvas.addEventListener("mouseover", cDrawRestore, false);
